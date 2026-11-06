@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Доска · Реставрация{% endblock %}
+{% block head %}
+<script>
+  document.addEventListener("alpine:init", () => {
+    Alpine.store("sel", {
+      ids: [],
+      has(id) { return this.ids.includes(id); },
+      toggle(id) { this.ids = this.has(id) ? this.ids.filter((x) => x !== id) : [...this.ids, id]; },
+      addAll(ids) { this.ids = [...new Set([...this.ids, ...ids])]; },
+      clear() { this.ids = []; },
+    });
+  });
+</script>
+{% endblock %}
+{% block main_class %}page board{% endblock %}
+{% block main %}
+<div class="toolbar">
+  <form class="filters" method="get" action="/">
+    <input type="search" name="q" value="{{ q }}" placeholder="R-0042 или имя файла" aria-label="Поиск">
+    <select name="album" aria-label="Альбом" onchange="this.form.submit()">
+      <option value="*">Все альбомы</option>
+      {% for a in albums %}
+      <option value="{{ a }}" {% if album == a %}selected{% endif %}>{{ a or "(без альбома)" }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Найти</button>
+    {% if q or (album is not none and album != "*") %}<a class="btn link" href="/">Сбросить</a>{% endif %}
+  </form>
+
+  <details class="upload">
+    <summary class="btn">Загрузить</summary>
+    <form method="post" action="/upload" enctype="multipart/form-data" class="upload-form">
+      <input type="file" name="files" multiple required accept=".jpg,.jpeg,.png,.webp,.tif,.tiff">
+      <input name="album" list="album-list" placeholder="Альбом (необязательно)">
+      <datalist id="album-list">{% for a in albums if a %}<option value="{{ a }}">{% endfor %}</datalist>
+      <button type="submit" class="primary">Положить во «Входящие»</button>
+    </form>
+  </details>
+</div>
+
+<form class="bulk" method="post" action="/bulk" x-data x-show="$store.sel.ids.length" x-cloak>
+  <span>Выбрано: <b x-text="$store.sel.ids.length"></b></span>
+  <template x-for="id in $store.sel.ids" :key="id"><input type="hidden" name="ids" :value="id"></template>
+  <input type="hidden" name="back" value="/?{{ qs }}">
+  <button name="action" value="hold">Отложить</button>
+  <button name="action" value="unhold">Вернуть в работу</button>
+  <button type="button" class="link" @click="$store.sel.clear()">Снять выбор</button>
+</form>
+
+{% if notices %}
+<div class="notice">
+  <b>Не приняты файлы из «Входящих»:</b>
+  <ul>
+    {% for ev in notices %}<li>{{ describe_event(ev) }} <span class="muted">· {{ ev.ts | localtime }}</span></li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if total == 0 and not q and (album is none or album == "*") %}
+<div class="empty-board">
+  <p>Фото пока нет. Положите файлы в сетевую папку <b>Реставрация\Входящие</b> — они появятся здесь в течение минуты.</p>
+  <p class="muted">Подпапка становится альбомом. Можно и загрузить файлы кнопкой «Загрузить».</p>
+</div>
+{% else %}
+{% include "_columns.html" %}
+{% endif %}
+{% endblock %}

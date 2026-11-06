@@ -1,0 +1,32 @@
+<div id="columns" class="columns"
+     hx-get="/partials/columns?{{ qs }}&v={{ token }}" hx-trigger="every 5s" hx-swap="outerHTML">
+  {% for status, label, photos in columns %}
+  <section class="col{% if not photos %} empty{% endif %}" data-status="{{ status }}">
+    <h2>
+      <span>{{ label }}</span>
+      <span class="n">{{ photos | length }}</span>
+      {% if photos %}
+      <button type="button" class="link pick-all" x-data
+              @click="$store.sel.addAll({{ photos | map(attribute='id') | list | tojson }})">выбрать все</button>
+      {% endif %}
+    </h2>
+    <div class="cards">
+      {% for p in photos %}
+      <article class="card{% if p.attention %} attn{% endif %}" x-data :class="$store.sel.has({{ p.id }}) && 'picked'">
+        <label class="pick" title="Выбрать">
+          <input type="checkbox" :checked="$store.sel.has({{ p.id }})" @change="$store.sel.toggle({{ p.id }})">
+        </label>
+        <a class="thumb" href="/photo/{{ p.id }}">
+          <img src="/files/{{ p.id }}/thumb?v={{ p.updated_at.timestamp() | int }}" loading="lazy" alt="{{ p.code }}">
+        </a>
+        <div class="meta">
+          <a class="code" href="/photo/{{ p.id }}">{{ p.code }}</a>
+          <span class="name" title="{{ p.original_name }}">{{ p.original_name }}</span>
+        </div>
+        {% if p.attention %}<div class="reason">{{ p.attention_reason }}</div>{% endif %}
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>

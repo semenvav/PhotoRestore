@@ -1,0 +1,56 @@
+[project]
+name = "photo-restore"
+version = "0.1.0"
+description = "Сервис реставрации фотоархива: сервер + агент"
+requires-python = ">=3.12,<3.13"
+dependencies = ["photo-restore-server"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "httpx2>=2.16.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["server"]
+
+[tool.uv.sources]
+photo-restore-server = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["server/migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # кириллица в строках и комментариях
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["server/app"]
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["imagehash.*"]
+ignore_missing_imports = true

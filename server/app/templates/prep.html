@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Подготовка {{ photo.code }} · Реставрация{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/vendor/cropper.min.css">{% endblock %}
+{% block main_class %}prep{% endblock %}
+{% block main %}
+<div class="prep-head">
+  <h1>{{ photo.code }} <span class="muted">{{ photo.original_name }}</span></h1>
+  {% if in_queue %}
+  <span class="muted">{{ position }} из {{ hdr.prep_count }} в очереди</span>
+  {% else %}
+  <span class="chip">{{ photo.status | status_label }}</span><span class="muted">переподготовка: старый файл сохранится</span>
+  {% endif %}
+  <a class="push" href="/photo/{{ photo.id }}">Карточка фото</a>
+</div>
+
+{% if similar %}
+<div class="notice">
+  Похоже на
+  {% for s in similar %}<a href="/photo/{{ s.photo_id }}">{{ s.photo_id | code }}</a> (расстояние {{ s.distance }}){{ ", " if not loop.last }}{% endfor %}
+  — проверьте, не тот же ли это снимок.
+</div>
+{% endif %}
+
+{% if not editable %}
+<div class="notice">В статусе «{{ photo.status | status_label }}» подготовка недоступна.</div>
+{% else %}
+<div class="editor">
+  <div class="stage">
+    <img id="prep-image" src="/files/{{ photo.id }}/preview/original" alt="{{ photo.code }}">
+  </div>
+  <aside class="tools">
+    <div class="group">
+      <div class="label">Поворот на 90°</div>
+      <div class="row">
+        <button type="button" data-act="rot-left" title="Shift+R">↺ влево</button>
+        <button type="button" data-act="rot-right" title="R">↻ вправо</button>
+      </div>
+    </div>
+    <div class="group">
+      <div class="label">Точный поворот <output id="angle-out">0.0°</output></div>
+      <input type="range" id="angle" min="-10" max="10" step="0.1" value="0" aria-label="Точный поворот">
+      <div class="row">
+        <button type="button" data-act="angle-dec">−0.1°</button>
+        <button type="button" data-act="angle-zero">0°</button>
+        <button type="button" data-act="angle-inc">+0.1°</button>
+      </div>
+    </div>
+    <div class="group">
+      <div class="label">Рамка</div>
+      <div class="ratios">
+        {% for r in ["free", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4"] %}
+        <button type="button" data-ratio="{{ r }}"{% if r == "free" %} aria-pressed="true"{% endif %}>{{ "свободно" if r == "free" else r }}</button>
+        {% endfor %}
+      </div>
+      <button type="button" data-act="reset-crop">Рамка на всё фото</button>
+    </div>
+    <div class="group">
+      <div class="label">Результат</div>
+      <div id="result-size" class="result">—</div>
+    </div>
+    <div class="group actions">
+      <button type="button" class="primary" data-act="save">Сохранить <kbd>Enter</kbd></button>
+      <button type="button" data-act="nocrop">Без обрезки <kbd>S</kbd></button>
+      {% if in_queue %}<a class="btn" id="skip" href="{{ config.skipUrl }}">Пропустить <kbd>→</kbd></a>{% endif %}
+    </div>
+    <div id="prep-error" class="error" hidden></div>
+    <p class="hint">«Без обрезки» сохраняет поворот, но берёт кадр целиком. Колесо мыши — масштаб, перетаскивание — сдвиг фото.</p>
+  </aside>
+</div>
+<script type="application/json" id="prep-config">{{ config | tojson }}</script>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if editable %}
+<script src="/static/vendor/cropper.min.js"></script>
+<script src="/static/prep.js"></script>
+{% endif %}
+{% endblock %}

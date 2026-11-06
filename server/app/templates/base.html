@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Реставрация{% endblock %}</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/app.css">
+  {% block head %}{% endblock %}
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/vendor/alpine.min.js" defer></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <header class="top">
+    <a class="brand" href="/">Реставрация <span class="ver" title="Номер сборки">{{ APP_VERSION }}</span></a>
+    <nav class="nav">
+      <a href="/" {% if request.url.path == "/" %}aria-current="page"{% endif %}>Доска</a>
+      <a href="/prep" {% if request.url.path.startswith("/prep") %}aria-current="page"{% endif %}>
+        Подготовка{% if hdr.prep_count %} <span class="count">{{ hdr.prep_count }}</span>{% endif %}
+      </a>
+    </nav>
+    <div class="hdr-status" hx-get="/partials/header" hx-trigger="every 5s" hx-swap="innerHTML">
+      {% include "_header_status.html" %}
+    </div>
+  </header>
+  {% if msg %}<div class="flash" role="status">{{ msg }}</div>{% endif %}
+  <main class="{% block main_class %}page{% endblock %}">
+    {% block main %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

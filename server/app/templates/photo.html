@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ photo.code }} · Реставрация{% endblock %}
+{% block main %}
+{% set v = photo.updated_at.timestamp() | int %}
+<div class="photo-head">
+  <h1>{{ photo.code }} <span class="muted">{{ photo.original_name }}</span></h1>
+  <span class="chip status-{{ photo.status | lower }}">{{ photo.status | status_label }}</span>
+  {% if photo.attention %}<span class="chip attn">Требует внимания</span>{% endif %}
+</div>
+
+{% if photo.attention %}<div class="error">{{ photo.attention_reason }}</div>{% endif %}
+{% if duplicate_of %}
+<div class="notice">Дубль фото <a href="/photo/{{ duplicate_of.id }}">{{ duplicate_of.code }}</a>
+  ({{ duplicate_of.original_name }}) — совпадает побайтно.</div>
+{% endif %}
+
+<div class="photo-layout">
+  <div class="previews">
+    <figure>
+      <a href="/files/{{ photo.id }}/preview/original" target="_blank">
+        <img src="/files/{{ photo.id }}/preview/original" alt="Оригинал {{ photo.code }}"></a>
+      <figcaption>Оригинал · {{ photo.width }}×{{ photo.height }}</figcaption>
+    </figure>
+    {% if has_prepared %}
+    <figure>
+      <a href="/files/{{ photo.id }}/preview/prepared?v={{ v }}" target="_blank">
+        <img src="/files/{{ photo.id }}/preview/prepared?v={{ v }}" alt="Подготовленное {{ photo.code }}"></a>
+      <figcaption>Подготовлено{% if photo.prep_params %} · {{ photo.prep_params.width }}×{{ photo.prep_params.height }}{% endif %}</figcaption>
+    </figure>
+    {% endif %}
+  </div>
+
+  <aside class="side">
+    <div class="actions">
+      {% if can_prep %}
+      <a class="btn primary" href="/prep/{{ photo.id }}">{{ "Подготовить" if photo.status == "PREP" else "Переподготовить" }}</a>
+      {% endif %}
+      {% if can_unhold %}
+      <form method="post" action="/photo/{{ photo.id }}/unhold"><button>Вернуть в работу</button></form>
+      {% endif %}
+      {% if can_hold %}
+      <form method="post" action="/photo/{{ photo.id }}/hold"><button>Отложить</button></form>
+      {% endif %}
+    </div>
+
+    <dl class="facts">
+      <dt>Исходное имя</dt><dd>{{ photo.original_name }}</dd>
+      <dt>Альбом</dt><dd>{{ photo.album or "—" }}</dd>
+      <dt>Получено</dt><dd>{{ photo.created_at | localtime }}</dd>
+      <dt>Раунд</dt><dd>{{ photo.round }}</dd>
+      <dt>SHA-256</dt><dd><code title="{{ photo.sha256 }}">{{ photo.sha256[:16] }}…</code></dd>
+      <dt>Файлы</dt>
+      <dd>
+        <a href="/files/{{ photo.id }}/original">оригинал</a>
+        {% if has_prepared %} · <a href="/files/{{ photo.id }}/prepared?download=1">prepared.png</a>{% endif %}
+      </dd>
+    </dl>
+
+    {% if jobs %}
+    <h2>Задачи</h2>
+    <table class="jobs">
+      <tr><th>#</th><th>Тип</th><th>Статус</th><th>Создана</th></tr>
+      {% for j in jobs %}
+      <tr>
+        <td>{{ j.id }}</td>
+        <td>{{ JOB_TYPE_LABELS[j.type] }}{% if j.payload.seeds %} ×{{ j.payload.seeds | length }}{% endif %}</td>
+        <td>{{ JOB_STATUS_LABELS[j.status] }}{% if j.error %} <span class="muted" title="{{ j.error }}">⚠</span>{% endif %}</td>
+        <td>{{ j.created_at | localtime }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </aside>
+</div>
+
+<h2>История</h2>
+<ol class="timeline">
+  {% for ev in events %}
+  <li>
+    <time>{{ ev.ts | localtime }}</time>
+    <span class="who">{{ ACTOR_LABELS[ev.actor] }}</span>
+    <span class="what">{{ describe_event(ev) }}</span>
+  </li>
+  {% endfor %}
+</ol>
+{% endblock %}

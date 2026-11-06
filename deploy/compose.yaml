@@ -1,0 +1,71 @@
+# Пример стека: Docker Compose + Traefik. Всё, что относится к конкретной установке (хост,
+# пути, UID), задаётся переменными — сам файл можно держать в открытом репозитории.
+# Образ собирает CI и публикует в ghcr.io, на сервере ничего не собирается:
+#
+#   cd deploy && docker compose pull && docker compose up -d
+#
+# Секреты GEMINI_API_KEY и AGENT_TOKEN (>= 32 случайных байт) — в photo-restore.env
+# (например, расшифрованном из SOPS); в репозиторий он не попадает.
+#
+# Переменные для подстановки (можно положить в deploy/.env, он тоже в .gitignore):
+#   RESTORE_HOST        имя хоста, по которому Traefik отдаёт сервис (обязательно)
+#   RESTORE_IMAGE_TAG   какую сборку запускать: 0.1.2 (закрепить), latest (последняя из master),
+#                       <ветка>, sha-1a2b3c4; работающая сборка видна в шапке и в /healthz
+#   RESTORE_DATA        путь на хосте, куда смонтировано хранилище (inbox/, delivered/, store/)
+#   PUID / PGID         владелец файлов на датасете, под ним работает процесс
+#   TRAEFIK_NETWORK     внешняя docker-сеть Traefik
+#   TRAEFIK_ENTRYPOINT  entrypoint HTTPS
+#
+# Проверить локальную сборку: docker build -f deploy/Dockerfile -t ghcr.io/semenvav/photo-restore:dev ..
+# и RESTORE_IMAGE_TAG=dev.
+name: photo-restore
+
+services:
+  photo-restore:
+    image: ghcr.io/semenvav/photo-restore:${RESTORE_IMAGE_TAG:-latest}
+    user: "${PUID:-1000}:${PGID:-1000}"
+    container_name: photo-restore
+    restart: unless-stopped
+    env_file:
+      - path: ./photo-restore.env
+        required: false
+    environment:
+      TZ: ${TZ:-Asia/Jerusalem}
+      DISPLAY_TZ: ${TZ:-Asia/Jerusalem}
+    volumes:
+      - ${RESTORE_DATA:-/mnt/restore}:/data
+      # SQLite — только на локальном томе: блокировки по NFS ненадёжны
+      - restore-db:/db
+    networks:
+      - proxy
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:-proxy}
+      traefik.http.services.photo-restore.loadbalancer.server.port: "8000"
+      # UI
+      traefik.http.routers.photo-restore.rule: Host(`${RESTORE_HOST:?задайте RESTORE_HOST в deploy/.env}`)
+      traefik.http.routers.photo-restore.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.photo-restore.tls: "true"
+      # traefik.http.routers.photo-restore.tls.certresolver: le
+      traefik.http.routers.photo-restore.service: photo-restore
+      # API агента — отдельный роутер; токен проверяет приложение
+      traefik.http.routers.photo-restore-agent.rule: Host(`${RESTORE_HOST:?задайте RESTORE_HOST в deploy/.env}`) && PathPrefix(`/api/agent`)
+      traefik.http.routers.photo-restore-agent.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.photo-restore-agent.tls: "true"
+      traefik.http.routers.photo-restore-agent.service: photo-restore
+
+volumes:
+  restore-db:
+
+# Вариант без маунта на хосте — NFS-том Docker (тогда в volumes: restore-data:/data):
+#  restore-data:
+#    driver: local
+#    driver_opts:
+#      type: nfs
+#      o: "addr=nas.example.lan,nfsvers=4.2,rw,hard"
+#      device: ":/export/path/restore"
+
+networks:
+  proxy:
+    external: true
+    name: ${TRAEFIK_NETWORK:-proxy}

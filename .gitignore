@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.env
+var/
+*.db
+*.db-wal
+*.db-shm
+deploy/*.env
+deploy/.env
+
+# ТЗ с деталями домашней сети — только локально
+docs/SPEC.md

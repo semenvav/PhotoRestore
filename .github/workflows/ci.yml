@@ -1,0 +1,152 @@
+name: CI
+
+# Каждый push проверяется; прошедший проверку push публикует образ в GHCR. Здесь ничего не
+# деплоится: какая сборка где работает, решает тег в deploy/.env на VM.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+# Новый push в ветку делает прошлый прогон бессмысленным — его отменяем. Кроме ветки по
+# умолчанию: там начатая сборка доходит до тега, иначе образ с номером опубликован, а тега нет,
+# и следующая сборка займёт тот же номер. Ожидающие прогоны всё равно выстраиваются по одному.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.13.x'
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Format
+        run: uv run ruff format --check server tests
+
+      - name: Lint
+        run: uv run ruff check server tests
+
+      - name: Types
+        run: uv run mypy
+
+      - name: Tests
+        run: uv run pytest -q
+
+  image:
+    # Pull request'ы (в том числе из форков) проверяются, но не публикуются.
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      number: ${{ steps.version.outputs.number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # следующий номер вычисляется по уже выпущенным тегам
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Каждая сборка ветки по умолчанию получает свой номер. Серия — из файла VERSION (номер
+      # этапа: 0.1 — M1, 0.2 — M2…). Первая сборка серии называется самой серией, следующие —
+      # серией с порядковым номером: 0.1, 0.1.1, 0.1.2. Поправили VERSION на 0.2 — следующая
+      # сборка станет 0.2. Тег в git ставится только после того, как образ попал в реестр (job
+      # tag ниже), так что неудачная сборка номер не занимает.
+      - name: Work out the version
+        id: version
+        run: |
+          set -euo pipefail
+          series=$(tr -d '[:space:]' < VERSION)
+          if ! [[ "$series" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "::error file=VERSION::ожидается серия вида 0.1, а там '$series'"
+            exit 1
+          fi
+          number=''
+          case "$GITHUB_REF" in
+            "refs/heads/${{ github.event.repository.default_branch }}")
+              if [ -z "$(git tag --list "v$series")" ]; then
+                number="$series"
+              else
+                prefix="v${series//./\\.}\\."
+                last=$(git tag --list "v$series.*" | sed -n "s/^$prefix\([0-9][0-9]*\)$/\1/p" | sort -n | tail -1)
+                number="$series.$(( ${last:-0} + 1 ))"
+              fi
+              label="$number"
+              ;;
+            refs/tags/v*)
+              label="${GITHUB_REF_NAME#v}"
+              ;;
+            *)
+              # сборка ветки — не релиз: вместо номера она называет коммит
+              label="${GITHUB_REF_NAME}@${GITHUB_SHA::7}"
+              ;;
+          esac
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "Эта сборка называется $label"
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/photo-restore
+          # `latest` — «последняя сборка ветки по умолчанию», и только; задан явно
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.number }},enable=${{ steps.version.outputs.number != '' }}
+            type=ref,event=branch
+            type=match,pattern=^v(\d+(\.\d+)+)$,group=1
+            type=sha
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # читает только последний слой, так что новый номер не пересобирает зависимости
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.label }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Отдельный job: номер записывается в git только после публикации образа, а единственное
+  # право на запись в репозиторий не достаётся самой сборке.
+  tag:
+    if: needs.image.outputs.number != ''
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # Тег, запушенный с GITHUB_TOKEN, не запускает новый прогон — цикла не будет.
+      - name: Tag this commit with its version
+        run: |
+          set -euo pipefail
+          git tag "v${{ needs.image.outputs.number }}"
+          git push origin "v${{ needs.image.outputs.number }}"

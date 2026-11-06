@@ -1,0 +1,9 @@
+<span class="chip {{ 'ok' if hdr.agent_online else 'off' }}"
+      title="{% if hdr.agent %}{{ hdr.agent.gpu_name or '' }} · последний сигнал {{ hdr.agent.last_seen | ago }}{% else %}агент ещё не подключался{% endif %}">
+  <span class="dot"></span>ПК {{ "онлайн" if hdr.agent_online else "офлайн" }}
+</span>
+{% if hdr.run %}
+<span class="chip run">Запуск #{{ hdr.run.id }} идёт</span>
+{% else %}
+<span class="chip muted">Запуска нет</span>
+{% endif %}
