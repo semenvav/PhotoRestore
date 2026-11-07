@@ -1,4 +1,4 @@
-"""Экран проверки (ТЗ §5.4): лента вариантов, сравнение, локальная доработка, «Скрыть»."""
+"""Экран проверки (ТЗ §5.4): лента вариантов, сравнение, доработка, «Скрыть», «Принять»."""
 
 from itertools import groupby
 from typing import Annotated, Any
@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import jobs, presets, states
+from app import final, jobs, presets, states
 from app.api.ui import (
     _CACHE,
     SessionDep,
@@ -41,11 +41,11 @@ def load_variant(session: Session, photo_id: int, variant_id: int) -> Variant:
     return variant
 
 
-def neighbours(session: Session, photo_id: int) -> tuple[int | None, int | None]:
-    """Предыдущее и следующее фото на проверке (по кругу), без текущего."""
-    ids = list(
-        session.scalars(select(Photo.id).where(Photo.status == Status.REVIEW).order_by(Photo.id))
-    )
+def neighbours(
+    session: Session, photo_id: int, status: Status = Status.REVIEW
+) -> tuple[int | None, int | None]:
+    """Предыдущее и следующее фото в статусе `status` (по кругу), без текущего."""
+    ids = list(session.scalars(select(Photo.id).where(Photo.status == status).order_by(Photo.id)))
     others = [i for i in ids if i != photo_id]
     if not others:
         return None, None
@@ -56,11 +56,16 @@ def neighbours(session: Session, photo_id: int) -> tuple[int | None, int | None]
 
 def variant_tooltip(v: Variant) -> str:
     p = v.params or {}
-    parts = [SOURCE_LABELS[v.source], f"раунд {v.round}"]
+    parts = [SOURCE_LABELS[v.source], f"раунд {v.round}", f"{v.width}×{v.height}"]
     if p.get("seed") is not None:
         parts.append(f"seed {p['seed']}")
     if p.get("steps"):
         parts.append(f"{p['steps']} шагов")
+    if v.source == VariantSource.UPSCALE:
+        if p.get("scale"):
+            parts.append(f"×{p['scale']:g}")
+        if isinstance(p.get("model"), str):
+            parts.append(p["model"])
     if p.get("workflow"):
         parts.append(f"{p['workflow']} v{p.get('workflow_version', '?')}")
     if v.duration_s:
@@ -147,6 +152,7 @@ def review_page(
         "tooltips": {x.id: variant_tooltip(x) for x in variants},
         "source_labels": SOURCE_LABELS,
         "can_refine": photo.status == Status.REVIEW,
+        "accepted_id": photo.accepted_variant_id,
         "has_prepared": store.prepared(photo.id).exists(),
         "addons": addons,
         "base_prompt": presets.base_prompt(session),
@@ -218,6 +224,33 @@ def review_refine(
     )
     session.commit()
     msg = f"{photo.code}: доработка в очереди (раунд {photo.round}, вариантов {variants})"
+    _, next_id = neighbours(session, photo.id)
+    return RedirectResponse(
+        with_msg(f"/review/{next_id}" if next_id else "/", msg), status_code=303
+    )
+
+
+@router.post("/review/{photo_id}/accept")
+def review_accept(
+    session: SessionDep,
+    photo_id: int,
+    variant_id: Annotated[int, Form()],
+    upscale: Annotated[bool, Form()] = True,
+) -> Response:
+    """«Принять» (→ апскейл в очереди) или «Принять без апскейла» (→ финал)."""
+    photo = load_photo(session, photo_id)
+    variant = load_variant(session, photo.id, variant_id)
+    try:
+        if upscale:
+            final.accept(session, photo, variant)
+            msg = f"{photo.code}: принят {variant.label}, апскейл в очереди"
+        else:
+            final.accept_without_upscale(session, photo, variant)
+            msg = f"{photo.code}: принят {variant.label} без апскейла — на финале"
+    except (TransitionError, final.FinalError) as e:
+        session.rollback()
+        return RedirectResponse(with_msg(f"/review/{photo.id}?v={variant.id}", str(e)), 303)
+    session.commit()
     _, next_id = neighbours(session, photo.id)
     return RedirectResponse(
         with_msg(f"/review/{next_id}" if next_id else "/", msg), status_code=303

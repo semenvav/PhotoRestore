@@ -19,8 +19,9 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import deletion, jobs, prep, runs, states
+from app import deletion, delivery, final, jobs, prep, runs, states
 from app.api.agent import agent_compatible
+from app.config import Settings
 from app.db import session_scope, utcnow
 from app.imaging import PrepParams, UnsupportedImage
 from app.intake import Intake
@@ -99,6 +100,7 @@ def header_ctx(session: Session) -> dict[str, Any]:
         "run_progress": runs.progress(session, run, jobs.LOCAL_TYPES) if run else None,
         "prep_count": status_count(session, Status.PREP),
         "review_count": status_count(session, Status.REVIEW),
+        "final_count": status_count(session, Status.FINAL_REVIEW),
     }
 
 
@@ -297,6 +299,20 @@ def bulk_action(
         except runs.RunError as e:
             msg = str(e)
         return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
+    if action == "priority":
+        count = jobs.raise_priority(session, ids)
+        session.commit()
+        msg = (
+            f"Приоритет поднят: задач {count}" if count else "У выбранных фото нет задач в очереди"
+        )
+        return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
+    if action == "cancel":
+        cancelled = [j for photo_id in ids for j in jobs.cancel_active(session, photo_id)]
+        session.commit()
+        msg = f"Отменено задач: {len(cancelled)}" if cancelled else "Отменять нечего"
+        return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
+    if action == "approve":
+        return bulk_approve(request, session, ids, back)
     if action not in ACTIONS:
         raise HTTPException(400, "неизвестное действие")
     done, errors = 0, []
@@ -314,6 +330,29 @@ def bulk_action(
     msg = f"Готово: {done}"
     if errors:
         msg += f"; недоступно для {', '.join(errors)}"
+    return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
+
+
+def bulk_approve(request: Request, session: Session, ids: list[int], back: str) -> Response:
+    """«Утвердить финал» у выбранных: каждое фото — своя транзакция и свой файл."""
+    settings: Settings = request.app.state.settings
+    done, skipped = [], []
+    for photo_id in ids:
+        photo = session.get(Photo, photo_id)
+        if photo is None:
+            continue
+        try:
+            final.approve(
+                session, request.app.state.store, settings.delivered_dir, photo, settings.display_tz
+            )
+            session.commit()
+            done.append(photo.code)
+        except (final.FinalError, delivery.DeliveryError, TransitionError):
+            session.rollback()
+            skipped.append(photo.code)
+    msg = f"Утверждено, во «Готово»: {len(done)}"
+    if skipped:
+        msg += f"; не на финале или без финала: {', '.join(skipped)}"
     return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
 
 

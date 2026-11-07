@@ -3,21 +3,24 @@
 Выдача агенту — `runs.claim`, приём результатов — `results`.
 """
 
+import math
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import presets, states
 from app.db import utcnow
-from app.models import Actor, Job, JobStatus, JobType, Photo, Status
+from app.models import Actor, Job, JobStatus, JobType, Photo, Status, Variant
 from app.states import log_event
 
 SEED_LIMIT = 2**48
 ACTIVE = (JobStatus.QUEUED, JobStatus.CLAIMED)
+# «Переделать апскейл»: масштабы на выбор (×4 от 1,5 Мп — 25 Мп, на 3090 Ti ≈ 40 с)
+UPSCALE_SCALES = (1.5, 2.0, 3.0, 4.0)
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,46 @@ def create_edit_job(
             "source_variant_id": source_variant_id,
             "round": photo.round,
             "params": {"steps": edit["steps"], "megapixels": edit["megapixels"]},
+        },
+    )
+    session.add(job)
+    session.flush()
+    log_event(session, photo.id, actor, "job_created", {"job_id": job.id, "type": job.type.value})
+    return job
+
+
+def auto_scale(width: int, height: int, target_mp: float, max_scale: float) -> float:
+    """Масштаб апскейла по умолчанию: до `target_mp` мегапикселей, но не больше
+    ×`max_scale` от входа и не меньше ×1 (большой вход не уменьшается)."""
+    scale = math.sqrt(target_mp * 1_000_000 / (width * height))
+    return round(min(max_scale, max(1.0, scale)), 2)
+
+
+def create_upscale_job(
+    session: Session,
+    photo: Photo,
+    variant: Variant,
+    actor: Actor,
+    model: str | None = None,
+    scale: float | None = None,
+) -> Job:
+    """Задача `upscale_local` для варианта; без явных модели и масштаба — из настроек
+    «upscale» (масштаб — `auto_scale` по размеру варианта)."""
+    up = presets.get_setting(session, "upscale")
+    if scale is None:
+        scale = auto_scale(
+            variant.width, variant.height, float(up["target_mp"]), float(up["max_scale"])
+        )
+    job = Job(
+        photo_id=photo.id,
+        type=JobType.UPSCALE_LOCAL,
+        status=JobStatus.QUEUED,
+        payload={
+            "seeds": [random_seed()],
+            "source": "variant",
+            "source_variant_id": variant.id,
+            "round": photo.round,
+            "params": {"model": model or up["model"], "scale": scale},
         },
     )
     session.add(job)
@@ -171,6 +214,32 @@ def cancel(session: Session, job: Job, actor: Actor = Actor.OWNER) -> None:
         photo = queued
     log_event(session, photo.id, actor, "jobs_cancelled", {"job_ids": [job.id]})
     _flag(photo, f"Задача #{job.id} отменена")
+
+
+def cancel_active(session: Session, photo_id: int, actor: Actor = Actor.OWNER) -> list[int]:
+    """Массовое «Отменить»: все задачи фото в очереди и на ПК (см. `cancel`)."""
+    active = session.scalars(
+        select(Job).where(Job.photo_id == photo_id, Job.status.in_(ACTIVE)).order_by(Job.id)
+    ).all()
+    for job in active:
+        cancel(session, job, actor)
+    return [j.id for j in active]
+
+
+def raise_priority(session: Session, photo_ids: list[int], actor: Actor = Actor.OWNER) -> int:
+    """«Поднять приоритет»: задачи фото в очереди — выше всех остальных в очереди."""
+    top = session.scalar(select(func.max(Job.priority)).where(Job.status == JobStatus.QUEUED))
+    queued = session.scalars(
+        select(Job).where(Job.photo_id.in_(photo_ids), Job.status == JobStatus.QUEUED)
+    ).all()
+    for job in queued:
+        job.priority = (top or 0) + 1
+    for photo_id in sorted({j.photo_id for j in queued}):
+        ids = [j.id for j in queued if j.photo_id == photo_id]
+        log_event(
+            session, photo_id, actor, "priority", {"job_ids": ids, "priority": (top or 0) + 1}
+        )
+    return len(queued)
 
 
 def can_retry(session: Session, photo: Photo) -> bool:

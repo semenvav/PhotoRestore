@@ -13,13 +13,13 @@ from PIL import Image
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import jobs, presets, runs
-from app.api import agent, pc, review, ui
+from app.api import agent, final, pc, review, ui
 from app.config import Settings, get_settings
 from app.db import make_engine, make_session_factory, migrate, session_scope
 from app.intake import Intake
 from app.storage import Store
 from app.views import make_templates
-from app.workflows import Registry, load_registry
+from app.workflows import REQUIRED_TYPES, Registry, load_registry
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -64,7 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
 
     # битая привязка workflow — сервер не стартует (ТЗ §7.3)
-    registry = load_registry(settings.workflows_dir)
+    registry = load_registry(settings.workflows_dir, REQUIRED_TYPES)
     engine = make_engine(settings.db_url)
     factory = make_session_factory(engine)
     store = Store(settings.store_dir)
@@ -112,6 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # pc и review раньше ui: у ui есть общий POST /photo/{id}/{action}
     app.include_router(pc.router)
     app.include_router(review.router)
+    app.include_router(final.router)
     app.include_router(ui.router)
     app.include_router(agent.router)
     return app

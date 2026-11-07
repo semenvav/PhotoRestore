@@ -140,6 +140,8 @@ def complete(session: Session, store: Store, registry: Registry, job: Job) -> li
         Actor.AGENT,
         {"job_id": job.id, "variants": [v.label for v in variants]},
     )
+    if job.type == JobType.UPSCALE_LOCAL:
+        photo.final_variant_id = variants[-1].id  # на экране финала — против принятого
     photo.attention = False
     photo.attention_reason = None
     return variants

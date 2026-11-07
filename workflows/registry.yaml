@@ -19,3 +19,25 @@ edit_qwen2511:
     megapixels: {node: IN_MEGAPIXELS, field: megapixels, default: 1.5}
   image: {node: IN_IMAGE, field: image}
   output: OUT_IMAGE
+
+# Апскейл принятого варианта: нативный SeedVR2 в ComfyUI (по шаблону «SeedVR2 7B Upscale
+# Image», модели fp16). Масштаб считает сервер: цель — target_mp из настроек «upscale», не
+# больше max_scale от входа; «Переделать апскейл» задаёт его явно. Цвет и тональность
+# выравниваются по входу (SeedVR2PostProcessing, lab).
+upscale_seedvr2:
+  job_type: upscale_local
+  file: upscale_seedvr2.json
+  version: 1
+  model: SeedVR2 (ComfyUI)
+  params:
+    seed:  {node: IN_SEED,          field: seed}
+    scale: {node: IN_UPSCALE,       field: resize_type.multiplier, default: 2.0}
+    model:
+      node: IN_UPSCALE_MODEL
+      field: unet_name
+      default: 7b_fp16
+      choices:
+        7b_fp16: seedvr2_7b_fp16.safetensors
+        3b_fp16: seedvr2_3b_fp16.safetensors
+  image: {node: IN_IMAGE, field: image}
+  output: OUT_IMAGE

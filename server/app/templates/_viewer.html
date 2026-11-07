@@ -1,0 +1,31 @@
+{# Просмотрщик: «два рядом» со слайдером и сетка 2×2 (static/review.js, конфиг — #review-config) #}
+  <section class="viewer">
+    <div class="viewer-bar">
+      <div class="seg">
+        <button type="button" data-mode="compare" aria-pressed="true">Два рядом</button>
+        <button type="button" data-mode="grid" aria-pressed="false">Сетка 2×2</button>
+      </div>
+      <label class="pair">Слева <select id="pick-left" aria-label="Слева"></select></label>
+      <label class="pair">Справа <select id="pick-right" aria-label="Справа"></select></label>
+      <span class="push"></span>
+      <output id="zoom-out" class="muted">вписано</output>
+      <button type="button" data-zoom="fit">Вписать</button>
+      <button type="button" data-zoom="100">100%</button>
+    </div>
+
+    <div id="compare" class="vstage compare">
+      <div class="layer" data-slot="right"><img alt=""></div>
+      <div class="layer over" data-slot="left"><img alt=""></div>
+      <div class="divider" title="Перетащите"><span class="grip"></span></div>
+      <span class="tag left" data-tag="left"></span>
+      <span class="tag right" data-tag="right"></span>
+    </div>
+
+    <div id="grid" class="grid4" hidden>
+      {% for i in range(4) %}
+      <div class="vstage cell"><div class="layer" data-slot="g{{ i }}"><img alt=""></div><span class="tag left" data-tag="g{{ i }}"></span></div>
+      {% endfor %}
+    </div>
+    <p class="hint">Колесо — масштаб, перетаскивание — сдвиг, двойной щелчок — 100% ↔ вписать; зум и сдвиг общие для всех панелей.
+      <kbd>1</kbd>–<kbd>9</kbd> — вариант, <kbd>←</kbd> <kbd>→</kbd> — соседние фото.</p>
+  </section>

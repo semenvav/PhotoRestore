@@ -16,7 +16,7 @@
         <label class="pick" title="Выбрать">
           <input type="checkbox" :checked="$store.sel.has({{ p.id }})" @change="$store.sel.toggle({{ p.id }})">
         </label>
-        {% set href = "/review/%d" % p.id if p.status == "REVIEW" else "/photo/%d" % p.id %}
+        {% set href = {"REVIEW": "/review/%d", "FINAL_REVIEW": "/final/%d"}.get(p.status, "/photo/%d") % p.id %}
         <a class="thumb" href="{{ href }}">
           <img src="/files/{{ p.id }}/thumb?v={{ p.updated_at.timestamp() | int }}" loading="lazy" alt="{{ p.code }}">
         </a>

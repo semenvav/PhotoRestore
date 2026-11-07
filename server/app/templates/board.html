@@ -44,6 +44,9 @@
   <template x-for="id in $store.sel.ids" :key="id"><input type="hidden" name="ids" :value="id"></template>
   <input type="hidden" name="back" value="/?{{ qs }}">
   <button name="action" value="run" class="primary" title="Запуск только для выбранных фото с задачами в очереди">Запустить выбранные</button>
+  <button name="action" value="approve" title="Фото на финале: финал → «Готово»">Утвердить финал</button>
+  <button name="action" value="priority" title="Задачи выбранных фото ПК возьмёт раньше остальных">Поднять приоритет</button>
+  <button name="action" value="cancel" title="Отменить задачи выбранных фото в очереди и на ПК">Отменить задачи</button>
   <button name="action" value="hold">Отложить</button>
   <button name="action" value="unhold">Вернуть в работу</button>
   <button type="button" class="danger-outline" @click="$refs.del.showModal()">Удалить…</button>

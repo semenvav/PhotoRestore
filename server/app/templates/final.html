@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Финал {{ photo.code }} · Реставрация{% endblock %}
+{% block main_class %}page review-page{% endblock %}
+{% block main %}
+<div class="review-head">
+  <h1>{{ photo.code }} <span class="muted">{{ photo.original_name }}</span></h1>
+  <span class="chip">{{ photo.status | status_label }}</span>
+  {% if photo.album %}<span class="muted">альбом «{{ photo.album }}»</span>{% endif %}
+  <nav class="push review-nav">
+    {% if prev_id %}<a class="btn" href="/final/{{ prev_id }}" title="Предыдущее на финале (←)">← {{ prev_id | code }}</a>{% endif %}
+    {% if next_id %}<a class="btn" href="/final/{{ next_id }}" title="Следующее на финале (→)">{{ next_id | code }} →</a>{% endif %}
+    <a href="/review/{{ photo.id }}">Все варианты</a>
+    <a href="/photo/{{ photo.id }}">Карточка</a>
+  </nav>
+</div>
+
+{% if photo.attention %}<div class="error">{{ photo.attention_reason }}</div>{% endif %}
+{% if not can_act %}
+<div class="notice">
+  {% if photo.status in ("QUEUED_UPSCALE", "UPSCALING") %}Апскейл ещё не готов: {{ photo.status | status_label | lower }}.
+  {% elif photo.status == "DELIVERED" %}Утверждено, файл во «Готово»: <code>{{ photo.delivered_path }}</code>.
+  {% else %}Фото не на финале ({{ photo.status | status_label }}).{% endif %}
+</div>
+{% endif %}
+
+{% if not tiles %}
+<div class="notice">Принятого варианта нет — выберите его на <a href="/review/{{ photo.id }}">проверке</a>.</div>
+{% else %}
+<div class="review">
+  {% include "_viewer.html" %}
+
+  <aside class="feed">
+    <h2>Финал</h2>
+    <div class="tiles">
+      {% for t in tiles %}
+      <button type="button" class="tile" data-key="v{{ t.id }}" title="{{ tooltips[t.id] }}"
+              aria-pressed="{{ 'true' if selected and selected.id == t.id else 'false' }}">
+        <img src="/files/{{ photo.id }}/variant/{{ t.id }}/thumb" alt="{{ t.label }}" loading="lazy">
+        <span class="n">{{ numbers[t.id] }}</span>
+        <span class="badge src-{{ t.source }}">{{ "Апскейл" if t.source == upscale else "Принят" }}</span>
+        <span class="lbl">{{ t.label }}{% if t.id == photo.final_variant_id %} · финал{% endif %}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="variant-actions" id="variant-actions" hidden>
+      <b id="sel-label"></b>
+      {% if can_act %}
+      <form method="post" action="/final/{{ photo.id }}/approve">
+        <input type="hidden" name="variant_id" data-selected-variant>
+        <button class="primary">Утвердить <span data-selected-label></span></button>
+      </form>
+      {% endif %}
+      <a class="btn" id="sel-download" href="#">Скачать PNG</a>
+    </div>
+    {% if can_act %}
+    <p class="hint">«Утвердить» кладёт выбранный вариант во «Готово»{% if photo.album %}/{{ photo.album }}{% endif %}
+      как <code>{{ photo.original_name.rsplit(".", 1)[0] }}_restored.png</code>.</p>
+
+    <div class="final-actions">
+      {% if photo.final_variant_id != photo.accepted_variant_id %}
+      <form method="post" action="/final/{{ photo.id }}/no-upscale">
+        <button title="Финалом станет принятый вариант">Без апскейла</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/final/{{ photo.id }}/back">
+        <button title="Вернуться к выбору варианта">Назад к вариантам</button>
+      </form>
+    </div>
+
+    <form class="refine" method="post" action="/final/{{ photo.id }}/redo">
+      <h2>Переделать апскейл</h2>
+      <label class="pick">Модель
+        <select name="model">
+          {% for key, label in models.items() %}<option value="{{ key }}"{% if key == default_model %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="pick">Масштаб
+        <select name="scale">
+          <option value="auto">{{ auto_label }}</option>
+          {% for value, label in scales %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <button>В очередь на ПК</button>
+      <p class="hint">Апскейл принятого варианта заново; прежние остаются в ленте.</p>
+    </form>
+    {% endif %}
+  </aside>
+</div>
+{% endif %}
+
+<h2>История</h2>
+<ol class="timeline">
+  {% for ev in events %}
+  <li>
+    <time>{{ ev.ts | localtime }}</time>
+    <span class="who">{{ ACTOR_LABELS[ev.actor] }}</span>
+    <span class="what">{{ describe_event(ev) }}</span>
+  </li>
+  {% endfor %}
+</ol>
+<script type="application/json" id="review-config">{{ config | tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="/static/review.js"></script>{% endblock %}

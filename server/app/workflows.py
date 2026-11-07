@@ -4,6 +4,9 @@
 привязку к узлам по заголовку (`_meta.title`). При старте сервер проверяет все привязки и
 без них не запускается. Агенту уходит граф с уже подставленными параметрами и привязки,
 по которым он сам ставит имя входного файла и seed каждого выхода.
+
+У параметра может быть `choices`: короткий ключ (его видят настройки и UI) → значение для
+графа, например `7b_fp16` → `seedvr2_7b_fp16.safetensors`.
 """
 
 import copy
@@ -17,6 +20,8 @@ import yaml
 from app.models import JobType
 
 REGISTRY_FILE = "registry.yaml"
+# без них сервер не стартует: чистка и апскейл на ПК
+REQUIRED_TYPES = (JobType.EDIT_LOCAL, JobType.UPSCALE_LOCAL)
 
 
 class WorkflowError(Exception):
@@ -28,6 +33,10 @@ class Binding:
     node: str  # заголовок узла
     field: str | None = None
     default: Any = None
+    choices: dict[str, Any] | None = None  # ключ → значение в графе
+
+    def resolve(self, value: Any) -> Any:
+        return self.choices.get(value, value) if self.choices else value
 
 
 @dataclass(frozen=True)
@@ -51,7 +60,8 @@ class Workflow:
         for name, binding in self.params.items():
             value = values.get(name, binding.default)
             if value is not None:
-                graph[self.node_ids[binding.node]]["inputs"][binding.field] = value
+                inputs = graph[self.node_ids[binding.node]]["inputs"]
+                inputs[binding.field] = binding.resolve(value)
         return graph
 
     def agent_bindings(self) -> dict[str, Any]:
@@ -61,6 +71,10 @@ class Workflow:
             "seed": {"node": seed.node, "field": seed.field} if seed else None,
             "output": {"node": self.output},
         }
+
+    def choices(self, param: str) -> dict[str, Any]:
+        binding = self.params.get(param)
+        return dict(binding.choices) if binding and binding.choices else {}
 
     def describe(self) -> dict[str, Any]:
         """Что записать в `variant.params`, чтобы результат можно было воспроизвести."""
@@ -146,7 +160,17 @@ def _load_one(directory: Path, name: str, entry: Any) -> Workflow:
     def binding(raw: Any, what: str) -> Binding:
         if not isinstance(raw, dict) or "node" not in raw or "field" not in raw:
             raise fail(f"{what}: нужны node и field")
-        b = Binding(node=str(raw["node"]), field=str(raw["field"]), default=raw.get("default"))
+        choices = raw.get("choices")
+        if choices is not None and (not isinstance(choices, dict) or not choices):
+            raise fail(f"{what}: choices — непустой словарь «ключ: значение»")
+        b = Binding(
+            node=str(raw["node"]),
+            field=str(raw["field"]),
+            default=raw.get("default"),
+            choices={str(k): v for k, v in choices.items()} if choices else None,
+        )
+        if b.choices and b.default is not None and b.default not in b.choices:
+            raise fail(f"{what}: default {b.default!r} не из choices")
         inputs = graph[node_for(b.node)]["inputs"]
         if b.field not in inputs:
             raise fail(f"{what}: у узла {b.node} нет поля {b.field!r}")

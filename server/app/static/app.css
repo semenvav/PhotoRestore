@@ -424,6 +424,10 @@ a.chip { text-decoration: none; color: inherit; }
 .refine .src { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; display: grid; gap: 4px; }
 .refine .src legend { font-size: 0.8rem; color: var(--muted); padding: 0 4px; }
 .refine .count-pick { display: flex; gap: 8px; align-items: center; }
+.refine .pick { display: grid; grid-template-columns: 5.5em 1fr; gap: 8px; align-items: center; }
+.refine .pick select { min-width: 0; }
+.final-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.final-actions form { margin: 0; }
 .refine .hint { margin: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip-check { display: inline-flex; gap: 4px; align-items: center; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.85rem; cursor: pointer; }

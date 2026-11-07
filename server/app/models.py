@@ -122,6 +122,8 @@ class Photo(Base):
     duplicate_of: Mapped[int | None] = mapped_column(ForeignKey("photo.id"))
     round: Mapped[int] = mapped_column(default=1)
     family_comment: Mapped[str | None] = mapped_column(Text)
+    # копия во «Готово» относительно delivered/ (posix); её убирает возврат отцом
+    delivered_path: Mapped[str | None] = mapped_column(String(1024))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 

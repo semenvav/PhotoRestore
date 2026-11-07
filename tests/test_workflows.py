@@ -6,7 +6,7 @@ import pytest
 
 from app.config import DEFAULT_WORKFLOWS_DIR
 from app.models import JobType
-from app.workflows import WorkflowError, load_registry
+from app.workflows import REQUIRED_TYPES, WorkflowError, load_registry
 
 GRAPH: dict[str, Any] = {
     "1": {"class_type": "LoadImage", "inputs": {"image": "x.png"}, "_meta": {"title": "IN_IMAGE"}},
@@ -116,3 +116,38 @@ def test_one_workflow_per_job_type(tmp_path: Path) -> None:
     doubled = REGISTRY + REGISTRY.replace("edit:", "edit2:", 1)
     with pytest.raises(WorkflowError, match="уже занят"):
         load_registry(make(tmp_path, registry=doubled))
+
+
+def test_repository_upscale_workflow() -> None:
+    registry = load_registry(DEFAULT_WORKFLOWS_DIR, REQUIRED_TYPES)
+    wf = registry.for_type(JobType.UPSCALE_LOCAL)
+    assert wf is not None and wf.name == "upscale_seedvr2"
+    assert wf.choices("model") == {
+        "7b_fp16": "seedvr2_7b_fp16.safetensors",
+        "3b_fp16": "seedvr2_3b_fp16.safetensors",
+    }
+    graph = wf.build({"model": "3b_fp16", "scale": 1.59})
+    by_title = {n["_meta"]["title"]: n for n in graph.values()}
+    assert by_title["IN_UPSCALE_MODEL"]["inputs"]["unet_name"] == "seedvr2_3b_fp16.safetensors"
+    assert by_title["IN_UPSCALE"]["inputs"]["resize_type.multiplier"] == 1.59
+    defaults = {n["_meta"]["title"]: n for n in wf.build({}).values()}
+    assert defaults["IN_UPSCALE_MODEL"]["inputs"]["unet_name"] == "seedvr2_7b_fp16.safetensors"
+    assert wf.agent_bindings()["seed"] == {"node": "IN_SEED", "field": "seed"}
+
+
+def test_registry_without_upscale_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(WorkflowError, match="upscale_local"):
+        load_registry(make(tmp_path), REQUIRED_TYPES)
+
+
+@pytest.mark.parametrize(
+    ("choices", "error"),
+    [("{a: x.png}", "default 8 не из choices"), ("[x.png]", "choices — непустой словарь")],
+)
+def test_choices_validation(tmp_path: Path, choices: str, error: str) -> None:
+    registry = REGISTRY.replace(
+        "steps:  {node: IN_STEPS,  field: value, default: 8}",
+        f"steps:  {{node: IN_STEPS,  field: value, default: 8, choices: {choices}}}",
+    )
+    with pytest.raises(WorkflowError, match=error):
+        load_registry(make(tmp_path, registry=registry))

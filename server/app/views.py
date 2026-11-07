@@ -58,6 +58,18 @@ def describe_event(ev: Event) -> str:
                 text += f" · доработка из {d['source']}"
             if d.get("cancelled"):
                 text += " · отменена"
+            if d.get("accepted"):
+                text += f" · принят {d['accepted']}"
+                if d.get("final") == "same":
+                    text += " без апскейла"
+            if d.get("redo"):
+                scale = d.get("scale")
+                scale_text = "масштаб авто" if scale in (None, "auto") else f"×{scale}"
+                text += f" · апскейл заново ({d.get('model')}, {scale_text})"
+            if d.get("delivered"):
+                text += f" · {d.get('variant', '')} → «Готово»/{d['delivered']}"
+            if d.get("back"):
+                text += " · назад к вариантам"
             if d.get("error"):
                 attempt = f" (попытка {d['attempt']})" if d.get("attempt") else ""
                 text += f" · ошибка{attempt}: {d['error']}"
@@ -73,6 +85,11 @@ def describe_event(ev: Event) -> str:
             if d.get("retry_of"):
                 text += f" (повтор #{d['retry_of']})"
             return text
+        case "final_set":
+            return f"Финал — {d['variant']} без апскейла"
+        case "priority":
+            jobs = ", ".join(f"#{i}" for i in d["job_ids"])
+            return f"Приоритет поднят до {d['priority']}: задачи {jobs}"
         case "variant_hide":
             return f"Скрыт вариант {d['variant']}"
         case "variant_show":

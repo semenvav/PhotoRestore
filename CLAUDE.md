@@ -35,7 +35,7 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
   ветки по умолчанию в серии получает номер `0.1`, следующие — `0.1.1`, `0.1.2`… Номер ставится
   git-тегом `v…` после публикации образа и передаётся в образ как `APP_VERSION`
   (виден в шапке и в `/healthz`).
-- **Начиная новый этап, первым делом поменять `VERSION`** (M3 → `0.3`).
+- **Начиная новый этап, первым делом поменять `VERSION`** (M4 → `0.4`).
 - Версия агента — `agent/restore_agent/__init__.py`; сервер принимает агентов не старше
   `MIN_AGENT_VERSION` (`server/app/api/agent.py`), иначе `hello` → 426. Несовместимая правка
   протокола = поднять обе.
@@ -108,6 +108,27 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
   `/healthz` сервера (у сборок не из ветки по умолчанию номера нет — тогда `-Version`), архив
   тега `v<номер>` с GitHub, `pip install …/agent` в `agent\.venv` при остановленной задаче
   Планировщика. `install.ps1` ставит из рабочей копии и перезапускает работающего агента.
+- Апскейл — нативный SeedVR2 ComfyUI (`comfy_extras/nodes_seedvr.py`), граф
+  `workflows/upscale_seedvr2.json` по шаблону «SeedVR2 7B Upscale Image» с моделями fp16 и
+  коррекцией цвета `lab` (тональность входа). `IN_UPSCALE` — `ResizeImageMaskNode`, поле
+  `resize_type.multiplier` (множитель, а не разрешение): масштаб считает сервер
+  (`jobs.auto_scale`: до `target_mp` из настройки «upscale», не больше `max_scale`, не меньше
+  ×1); «Переделать апскейл» — модель и масштаб из `jobs.UPSCALE_SCALES`. Параметр реестра с
+  `choices` (ключ → значение в графе): настройки и UI хранят ключ (`7b_fp16`). Сервер не
+  стартует без workflow для `edit_local` и `upscale_local` (`workflows.REQUIRED_TYPES`).
+- Финал (`final.py`): `accepted_variant_id` — принятый вариант, `final_variant_id` — что
+  отдаётся. Результат апскейла сразу становится финалом; «Без апскейла» делает финалом
+  принятый, не меняя статус; «Утвердить» отдаёт выбранного кандидата (принятый или его
+  апскейл); «Назад к вариантам» обнуляет оба поля.
+- Отдача (`delivery.py`): `delivered/<альбом>/<имя>_restored.png`, занято другим фото —
+  `<имя>_restored_R-0042.png`; чей файл — по PNG-метаданному `Title`, повторная отдача того же
+  фото перезаписывает свой файл. PNG не перекодируется: чанки копируются, текстовые чанки
+  ComfyUI (граф, промпт) выбрасываются, наши — `Title` (ID), `Source` (исходное имя),
+  `Restored` (дата в `DISPLAY_TZ`), `Software` — пишутся перед IDAT (не-latin-1 — iTXt).
+  Запись атомарная; путь — в `photo.delivered_path` (для возврата отцом в M5).
+- Массовые действия: «Утвердить финал» (каждое фото — своя транзакция), «Поднять приоритет»
+  (задачам в очереди — максимум по очереди + 1), «Отменить задачи» (`jobs.cancel` для всех
+  активных). `FAKE_COMFY` увеличивает картинку на `resize_type.multiplier` из графа.
 
 ## Устройство
 
@@ -115,9 +136,12 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
   lifespan: миграции, каталоги, настройки по умолчанию, циклы приёма и `sweep`.
 - `intake.py` — опрос `inbox/`; `imaging.py` — Pillow; `prep.py` — подготовка;
   `jobs.py` — задачи (стадии, неудача, отмена, повтор); `runs.py` — запуски и `claim`;
-  `results.py` — входы, выходы, `complete`; `workflows.py` — реестр `workflows/registry.yaml`.
+  `results.py` — входы, выходы, `complete`; `workflows.py` — реестр `workflows/registry.yaml`;
+  `final.py` — принятие и финал; `delivery.py` — отдача во «Готово».
 - `api/ui.py` (доска, карточка, подготовка, файлы), `api/pc.py` (панель «ПК», запуски),
-  `api/review.py` (проверка, доработка), `api/agent.py` (протокол агента). Jinja2 + htmx +
+  `api/review.py` (проверка, доработка, «Принять»), `api/final.py` (финал),
+  `api/agent.py` (протокол агента). Просмотрщик — `templates/_viewer.html` + `static/review.js`
+  на проверке и финале. Jinja2 + htmx +
   Alpine; JS-библиотеки лежат в `app/static/vendor/` (без CDN).
 - `agent/restore_agent/` — `runner.py` (цикл, подъём ComfyUI, config на лету), `client.py`
   (сервер, повторы с паузой), `comfy.py` (HTTP API ComfyUI), `fake.py` (`FAKE_COMFY=1`),

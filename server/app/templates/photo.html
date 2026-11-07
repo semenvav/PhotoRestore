@@ -38,8 +38,11 @@
 
   <aside class="side">
     <div class="actions">
+      {% if photo.status == "FINAL_REVIEW" %}
+      <a class="btn primary" href="/final/{{ photo.id }}">Финал</a>
+      {% endif %}
       {% if variants_count %}
-      <a class="btn primary" href="/review/{{ photo.id }}">{{ "Проверить" if photo.status == "REVIEW" else "Варианты" }} ({{ variants_count }})</a>
+      <a class="btn {{ '' if photo.status == 'FINAL_REVIEW' else 'primary' }}" href="/review/{{ photo.id }}">{{ "Проверить" if photo.status == "REVIEW" else "Варианты" }} ({{ variants_count }})</a>
       {% endif %}
       {% if can_prep %}
       <a class="btn {{ '' if variants_count else 'primary' }}" href="/prep/{{ photo.id }}">{{ "Подготовить" if photo.status == "PREP" else "Переподготовить" }}</a>
@@ -59,6 +62,7 @@
       <dt>Альбом</dt><dd>{{ photo.album or "—" }}</dd>
       <dt>Получено</dt><dd>{{ photo.created_at | localtime }}</dd>
       <dt>Раунд</dt><dd>{{ photo.round }}</dd>
+      {% if photo.delivered_path %}<dt>Во «Готово»</dt><dd><code>{{ photo.delivered_path }}</code></dd>{% endif %}
       <dt>SHA-256</dt><dd><code title="{{ photo.sha256 }}">{{ photo.sha256[:16] }}…</code></dd>
       <dt>Файлы</dt>
       <dd>
@@ -74,7 +78,7 @@
       {% for j in jobs %}
       <tr>
         <td>{{ j.id }}</td>
-        <td>{{ JOB_TYPE_LABELS[j.type] }}{% if j.payload.seeds %} ×{{ j.payload.seeds | length }}{% endif %}</td>
+        <td>{{ JOB_TYPE_LABELS[j.type] }}{% if j.type == "edit_local" and j.payload.seeds %} ×{{ j.payload.seeds | length }}{% endif %}{% if j.type == "upscale_local" and j.payload.params %} ×{{ j.payload.params.scale }}{% endif %}{% if j.priority > 0 %} <span class="chip" title="Приоритет поднят">↑{{ j.priority }}</span>{% endif %}</td>
         <td>{{ JOB_STATUS_LABELS[j.status] }}{% if j.status == "claimed" and j.progress %} {{ j.progress.done }}/{{ j.progress.total }}{% endif %}{% if j.error %} <span class="muted" title="{{ j.error }}">⚠</span>{% endif %}</td>
         <td>{{ j.created_at | localtime }}</td>
         <td>{% if j.status in ("queued", "claimed") %}<form method="post" action="/jobs/{{ j.id }}/cancel"><button class="link">Отменить</button></form>{% endif %}</td>

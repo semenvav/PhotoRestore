@@ -1,4 +1,5 @@
-"""FAKE_COMFY=1: ComfyUI без GPU для сквозных тестов — возвращает вход с напечатанным seed."""
+"""FAKE_COMFY=1: ComfyUI без GPU для сквозных тестов — возвращает вход с напечатанным seed
+(для графа апскейла — увеличенный на его множитель)."""
 
 import io
 import threading
@@ -59,6 +60,16 @@ class FakeComfy:
             None,
         )
         img = Image.open(io.BytesIO(source)).convert("RGB")
+        scale = next(
+            (
+                float(node["inputs"]["resize_type.multiplier"])
+                for node in workflow.values()
+                if "resize_type.multiplier" in node.get("inputs", {})
+            ),
+            1.0,
+        )
+        if scale != 1.0:
+            img = img.resize((round(img.width * scale), round(img.height * scale)))
         draw = ImageDraw.Draw(img)
         draw.rectangle((0, 0, img.width, 14), fill=(0, 0, 0))
         draw.text((2, 1), f"seed {seed}", fill=(255, 255, 255))

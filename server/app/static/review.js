@@ -1,5 +1,6 @@
-// Экран проверки: «два рядом» со слайдером и сетка 2×2. Зум и сдвиг общие для всех
-// панелей; при зуме выше превью подгружается полный файл.
+// Экраны проверки и финала: «два рядом» со слайдером и сетка 2×2. Зум и сдвиг общие для
+// всех панелей; при зуме выше превью подгружается полный файл. Конфиг — #review-config:
+// images, selected, left (что слева; по умолчанию prepared), prevUrl/nextUrl.
 (() => {
   const cfg = JSON.parse(document.getElementById("review-config").textContent);
   const images = new Map(cfg.images.map((i) => [i.key, i]));
@@ -8,9 +9,10 @@
   const MAX_SCALE = 40;
 
   const view = { s: 1, x: 0, y: 0 }; // s = 1 — вписано в панель
+  const baseLeft = cfg.left || "prepared";
   const state = {
     mode: "compare",
-    left: "prepared",
+    left: baseLeft,
     right: cfg.selected || "prepared",
     selected: cfg.selected,
     split: 0.5,
@@ -262,14 +264,20 @@
     if (!entry) return;
     state.selected = key;
     state.right = key;
+    // с самим собой не сравниваем: выбрали то, что слева, — слева подготовленное
+    if (cfg.left) state.left = key === baseLeft ? "prepared" : baseLeft;
     document.querySelectorAll(".tile").forEach((t) =>
       t.setAttribute("aria-pressed", String(t.dataset.key === key)));
     actions.hidden = false;
     document.getElementById("sel-label").textContent = `${entry.label} · ${entry.badge}`;
     document.getElementById("sel-download").href = entry.download;
+    document.querySelectorAll("[data-selected-variant]").forEach((el) => (el.value = entry.id));
+    document.querySelectorAll("[data-selected-label]").forEach((el) => (el.textContent = entry.label));
     const vis = document.getElementById("sel-visibility");
-    vis.action = `/variants/${entry.id}/${entry.hidden ? "show" : "hide"}`;
-    document.getElementById("sel-visibility-btn").textContent = entry.hidden ? "Вернуть" : "Скрыть";
+    if (vis) {
+      vis.action = `/variants/${entry.id}/${entry.hidden ? "show" : "hide"}`;
+      document.getElementById("sel-visibility-btn").textContent = entry.hidden ? "Вернуть" : "Скрыть";
+    }
     if (srcLabel) {
       srcLabel.textContent = entry.label;
       srcVariant.value = entry.id;

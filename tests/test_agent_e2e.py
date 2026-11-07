@@ -8,6 +8,7 @@ import io
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 import numpy as np
@@ -368,3 +369,80 @@ def test_server_rejection_mid_job_does_not_kill_agent(
         else:  # fail тоже не принят — задачу вернёт аренда
             assert job.status == JobStatus.CLAIMED
     assert (ag.jobs_dir / "1" / "out_0.png").is_file()  # готовый результат не выброшен
+
+
+def test_full_pipeline_to_delivered(
+    client: TestClient,
+    intake: Intake,
+    inbox: Path,
+    factory: sessionmaker[Session],
+    settings: Settings,
+    agent: tuple[Agent, FakeComfy],
+) -> None:
+    """ТЗ §10: файл во «Входящих» → подготовка → run → 3 варианта → принять → апскейл →
+    утвердить → файл во «Готово» под исходным именем с `_restored`."""
+    ag, fake = agent
+    pid = prepared_photo(client, intake, inbox, "Семья/Дедушка 1938.png", 3)
+    client.post("/runs/start")
+    ag.heartbeat()
+    assert ag.step() == 0
+    v2 = variants(factory, pid)[1]
+
+    client.post(f"/review/{pid}/accept", data={"variant_id": v2.id})
+    assert status(factory, pid) == Status.QUEUED_UPSCALE
+    ag.step()  # прошлый запуск кончился — без нового агент апскейл не берёт
+    assert status(factory, pid) == Status.QUEUED_UPSCALE
+    client.post("/runs/start")
+    ag.heartbeat()
+    assert ag.step() == 0
+
+    up = variants(factory, pid)[-1]
+    assert status(factory, pid) == Status.FINAL_REVIEW
+    assert up.source == "upscale" and (up.width, up.height) == (400, 300)  # 200×150, авто ×2
+    graph = fake.runs[-1]
+    assert any(
+        n["inputs"].get("unet_name") == "seedvr2_7b_fp16.safetensors" for n in graph.values()
+    )
+
+    r = client.post(f"/final/{pid}/approve", follow_redirects=False)
+    assert r.status_code == 303
+    out = settings.delivered_dir / "Семья" / "Дедушка 1938_restored.png"
+    with Image.open(out) as img:
+        assert img.size == (400, 300) and img.text["Title"] == f"R-{pid:04d}"
+    assert status(factory, pid) == Status.DELIVERED
+    ag.step()
+    assert fake.frees == 2  # после каждого запуска
+
+
+def test_ten_selected_photos_run_with_one_button(
+    client: TestClient,
+    intake: Intake,
+    inbox: Path,
+    factory: sessionmaker[Session],
+    agent: tuple[Agent, FakeComfy],
+) -> None:
+    """Критерий M3: выбранные 10 фото запускаются одной кнопкой — и чистка, и апскейл."""
+    ag, _ = agent
+    ids = [prepared_photo(client, intake, inbox, f"s{i:02d}.png", i) for i in range(12)]
+    # двое уже прошли чистку и ждут апскейла
+    client.post("/bulk", data={"action": "run", "ids": [str(i) for i in ids[:2]]})
+    ag.heartbeat()
+    while ag.step() == 0:
+        pass
+    for pid in ids[:2]:
+        client.post(f"/review/{pid}/accept", data={"variant_id": variants(factory, pid)[0].id})
+
+    selected = ids[:10]
+    r = client.post(
+        "/bulk", data={"action": "run", "ids": [str(i) for i in selected]}, follow_redirects=False
+    )
+    assert "задач 10" in unquote(r.headers["location"])
+    ag.heartbeat()
+    while ag.step() == 0:
+        pass
+    assert [status(factory, i) for i in ids] == [Status.FINAL_REVIEW] * 2 + [Status.REVIEW] * 8 + [
+        Status.QUEUED_EDIT
+    ] * 2
+    with factory() as s:
+        run = s.scalars(select(Run).order_by(Run.id.desc())).first()
+        assert run is not None and run.state == RunState.COMPLETED and len(run.job_ids or []) == 10
