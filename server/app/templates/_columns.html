@@ -16,11 +16,12 @@
         <label class="pick" title="Выбрать">
           <input type="checkbox" :checked="$store.sel.has({{ p.id }})" @change="$store.sel.toggle({{ p.id }})">
         </label>
-        <a class="thumb" href="/photo/{{ p.id }}">
+        {% set href = "/review/%d" % p.id if p.status == "REVIEW" else "/photo/%d" % p.id %}
+        <a class="thumb" href="{{ href }}">
           <img src="/files/{{ p.id }}/thumb?v={{ p.updated_at.timestamp() | int }}" loading="lazy" alt="{{ p.code }}">
         </a>
         <div class="meta">
-          <a class="code" href="/photo/{{ p.id }}">{{ p.code }}</a>
+          <a class="code" href="{{ href }}">{{ p.code }}</a>
           <span class="name" title="{{ p.original_name }}">{{ p.original_name }}</span>
         </div>
         {% if p.attention %}<div class="reason">{{ p.attention_reason }}</div>{% endif %}

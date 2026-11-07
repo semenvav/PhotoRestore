@@ -1,9 +1,14 @@
-<span class="chip {{ 'ok' if hdr.agent_online else 'off' }}"
-      title="{% if hdr.agent %}{{ hdr.agent.gpu_name or '' }} · последний сигнал {{ hdr.agent.last_seen | ago }}{% else %}агент ещё не подключался{% endif %}">
-  <span class="dot"></span>ПК {{ "онлайн" if hdr.agent_online else "офлайн" }}
-</span>
+{% if hdr.agent_outdated %}
+<a class="chip bad" href="/pc" title="Агент {{ hdr.agent.version }} несовместим с сервером">Обновите агента</a>
+{% else %}
+<a class="chip {{ 'ok' if hdr.agent_online else 'off' }}" href="/pc"
+   title="{% if hdr.agent %}{{ hdr.agent.gpu_name or '' }} · последний сигнал {{ hdr.agent.last_seen | ago }}{% else %}агент ещё не подключался{% endif %}">
+  <span class="dot"></span>ПК {{ "онлайн" if hdr.agent_online else "офлайн" }}{% if hdr.agent_online and not hdr.agent.comfy_ok %} · ComfyUI не запущен{% endif %}
+</a>
+{% endif %}
 {% if hdr.run %}
-<span class="chip run">Запуск #{{ hdr.run.id }} идёт</span>
+{% set p = hdr.run_progress %}
+<a class="chip run" href="/pc">Запуск #{{ hdr.run.id }}: {{ p.done + p.failed }} из {{ p.total }}</a>
 {% else %}
 <span class="chip muted">Запуска нет</span>
 {% endif %}

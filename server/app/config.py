@@ -1,7 +1,11 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# workflows/ лежит в корне репозитория; в образе — /srv/workflows
+DEFAULT_WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / "workflows"
 
 
 class Settings(BaseSettings):
@@ -25,6 +29,12 @@ class Settings(BaseSettings):
 
     # номер сборки: CI передаёт его в образ (`APP_VERSION`), вне контейнера — dev
     app_version: str = "dev"
+
+    # агент (ТЗ §6): без токена API агента отвечает 503
+    agent_token: SecretStr | None = None
+    lease_s: float = 600.0  # аренда задачи: claim и каждый progress продлевают её
+    sweep_interval_s: float = 60.0  # как часто возвращать просроченные задачи в очередь
+    workflows_dir: Path = DEFAULT_WORKFLOWS_DIR
 
     @property
     def inbox_dir(self) -> Path:

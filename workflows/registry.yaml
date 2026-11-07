@@ -1,0 +1,21 @@
+# Реестр workflow ComfyUI (ТЗ §7.3). Workflow — в API-формате (Workflow → Export (API)).
+# Узлы, которые меняет сервис, ищутся по заголовку (_meta.title), а не по id.
+# Сервер при старте проверяет, что каждая привязка находит ровно один узел с таким полем.
+#
+# params: что подставляет сервер (prompt, steps, megapixels…) и агент (seed — на каждый выход);
+#         default — если в задаче значение не задано.
+# image:  куда агент подставляет имя загруженного входа.
+# output: узел, чей файл агент забирает как результат.
+
+edit_qwen2511:
+  job_type: edit_local
+  file: edit_qwen2511.json
+  version: 1
+  model: qwen_image_edit_2511_fp8mixed + Lightning 8 steps
+  params:
+    prompt:     {node: IN_PROMPT,     field: prompt}
+    seed:       {node: IN_SEED,       field: seed}
+    steps:      {node: IN_STEPS,      field: value,      default: 8}
+    megapixels: {node: IN_MEGAPIXELS, field: megapixels, default: 1.5}
+  image: {node: IN_IMAGE, field: image}
+  output: OUT_IMAGE

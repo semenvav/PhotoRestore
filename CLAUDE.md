@@ -1,8 +1,8 @@
 # photo-restore
 
 Сервис реставрации семейного фотоархива: сервер (`server/`, FastAPI в Docker) + агент на ПК
-(`agent/`, с M2). Полное ТЗ — `docs/SPEC.md`, этапы — §11. ТЗ есть только локально (в
-`.gitignore`): в нём детали домашней сети.
+(`agent/`, Windows, ComfyUI). Полное ТЗ — `docs/SPEC.md`, этапы — §11. ТЗ есть только локально
+(в `.gitignore`): в нём детали домашней сети.
 
 Репозиторий публичный: в коммитах не должно быть хостов, адресов, путей и имён устройств
 домашней сети — только плейсхолдеры и переменные (`RESTORE_HOST` и т. п.).
@@ -10,18 +10,22 @@
 ## Команды
 
 ```sh
-uv sync                                   # зависимости (workspace: корень + server/)
-uv run pytest -q                          # тесты
-uv run ruff format server tests && uv run ruff check server tests
-uv run mypy                               # типы (server/app)
-# локальный сервер: скопируйте .env.example в .env
+uv sync                                   # зависимости (workspace: корень + server/ + agent/)
+uv run pytest -q                          # тесты (сервер, протокол, агент с FAKE_COMFY)
+uv run ruff format server agent tests && uv run ruff check server agent tests
+uv run mypy                               # типы (server/app, agent/restore_agent)
+# локальный сервер: скопируйте .env.example в .env (AGENT_TOKEN — для API агента)
 uv run uvicorn --factory app.main:create_app --reload --app-dir server
+# агент: config.toml по образцу agent/config.example.toml; FAKE_COMFY=1 — без GPU
+uv run python -m restore_agent --config agent/config.toml
 # новая миграция после правки models.py:
 DB_PATH=var/gen.db uv run alembic -c server/alembic.ini upgrade head
 DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate -m "..."
 ```
 
 Сборка образа: `docker build -f deploy/Dockerfile .`; пример стека — `deploy/compose.yaml`.
+Агент на ПК ставится `agent/install.ps1` (venv + задача Планировщика при входе, без окна; из
+рабочей копии), обновляется `agent/update.ps1` (сборка, которая работает на сервере, с GitHub).
 
 ## Версии и CI
 
@@ -31,13 +35,17 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
   ветки по умолчанию в серии получает номер `0.1`, следующие — `0.1.1`, `0.1.2`… Номер ставится
   git-тегом `v…` после публикации образа и передаётся в образ как `APP_VERSION`
   (виден в шапке и в `/healthz`).
-- **Начиная новый этап, первым делом поменять `VERSION`** (M2 → `0.2`).
+- **Начиная новый этап, первым делом поменять `VERSION`** (M3 → `0.3`).
+- Версия агента — `agent/restore_agent/__init__.py`; сервер принимает агентов не старше
+  `MIN_AGENT_VERSION` (`server/app/api/agent.py`), иначе `hello` → 426. Несовместимая правка
+  протокола = поднять обе.
 
 ## Инварианты
 
 - `original.*` никогда не открывается на запись после приёма (файл в `store/` с правами 0444).
+  Варианты (`variants/vNNN.png`) тоже 0444 и не перезаписываются.
 - Статус фото меняется только через `states.transition()`; события истории — `states.log_event()`.
-- Агент не получает задач без активного `run`.
+- Агент не получает задач без активного `run` (`runs.claim`).
 - Все пути внутри `store/` строятся из ID (`storage.Store`), имена от пользователя в пути не попадают.
 
 ## Решения, которых нет в ТЗ
@@ -63,10 +71,56 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
   Фото в обработке (`EDITING`, `UPSCALING`, `GEMINI`) не удаляются. Дубли удалённого
   основного остаются: основным становится первый, остальные ссылаются на него. ID не
   переиспользуются (`sqlite_autoincrement`). В UI удаление — только через диалог подтверждения.
+- Workflow `workflows/edit_qwen2511.json` собран по шаблону ComfyUI (графов из инструкции в
+  репозитории нет): Qwen-Image-Edit-2511 fp8mixed + Lightning LoRA 8 шагов, cfg 1, euler/simple,
+  shift 3.1. `IN_STEPS` — отдельный `PrimitiveInt` (поле `value`): у узла один заголовок, а
+  KSampler занят под `IN_SEED`. Свой граф из ComfyUI можно положить вместо этого, сохранив
+  заголовки; реестр проверяется при старте сервера.
+- Привязки в задаче агента — с полями: `{"image": {"node", "field"}, "seed": {...},
+  "output": {"node"}}`. Сервер подставляет prompt/steps/megapixels, агент — вход и seed.
+- Запуск `scope=all` берёт и задачи, созданные после старта. `job.run_id` — запуск, в котором
+  задачу взяли последний раз (для прогресса). Запуск завершается при `claim` → 204, после
+  `complete` и в фоновой проверке (`main.sweep`, раз в `SWEEP_INTERVAL_S`; она же возвращает
+  задачи с истёкшей арендой).
+- «Отменить» задачу: она `cancelled`, фото остаётся (взятая — возвращается) в статусе ожидания
+  своей стадии с флагом `attention`; дальше «Повторить» (новая задача с тем же заданием) или
+  «Отложить». Новых переходов нет. Неудача после 3 попыток или `retryable: false` — так же.
+- Выходы до `complete` лежат в `store/R-xxxx/jobs/<job_id>/`; при `complete` копируются в
+  `variants/vNNN.png` (номер — по файлам), превью `cache/preview_vNNN.jpg`, `thumb_vNNN.webp`;
+  после commit каталог задачи удаляется.
+- Просмотрщик проверки — свой код (`static/review.js`) вместо img-comparison-slider/panzoom:
+  зум и сдвиг общие для всех панелей, разделитель двигается только за ручку (иначе
+  перетаскивание конфликтует со сдвигом).
+- Агент загружает вход в ComfyUI как `input/restore/source.png` (overwrite); результаты
+  SaveImage копятся в `ComfyUI/output/restore/` — агент их не трогает (удаляет только своё в
+  workdir).
+- Модели выгружаются (`/free`, один раз) и после `claim` → 204, и когда запуск остановлен
+  («Стоп» посреди задачи: она доделывается, потом выгрузка).
+- ComfyUI агент поднимает снова, если тот упал или его закрыли (не чаще раза в
+  `COMFY_RELAUNCH_PAUSE_S`); пока запущенный агентом процесс жив, второй не запускается.
+  Поэтому `comfy_launch_cmd` должен жить столько же, сколько ComfyUI (не `.bat` с `pause`).
+- `config.toml` перечитывается на лету (пульс, по mtime+размеру): адрес и токен — сразу
+  (новый httpx-клиент в `ServerClient.http`), другой ComfyUI — между задачами, `workdir` —
+  только перезапуском; файл с ошибкой не применяется. Вызовы по задаче при 401 повторяются,
+  пока не исправят токен. Остальные 4xx посреди задачи не роняют агента: `fail`, результаты
+  остаются в workdir; цикл агента ловит любые исключения и пишет их в лог.
+- Обновление агента: `update.ps1` → `python -m restore_agent.update`: номер сборки из
+  `/healthz` сервера (у сборок не из ветки по умолчанию номера нет — тогда `-Version`), архив
+  тега `v<номер>` с GitHub, `pip install …/agent` в `agent\.venv` при остановленной задаче
+  Планировщика. `install.ps1` ставит из рабочей копии и перезапускает работающего агента.
 
-## Устройство сервера
+## Устройство
 
-- `app/main.py` — `create_app()`, lifespan: миграции, каталоги, настройки по умолчанию, цикл приёма.
-- `app/intake.py` — опрос `inbox/`; `app/imaging.py` — Pillow; `app/prep.py` — подготовка.
-- `app/api/ui.py` — Jinja2 + htmx + Alpine; JS-библиотеки лежат в `app/static/vendor/` (без CDN).
-- Тесты: `tests/`; картинки генерируются в `tests/imgutil.py`.
+- `server/app/main.py` — `create_app()`: реестр workflow (битый — сервер не стартует);
+  lifespan: миграции, каталоги, настройки по умолчанию, циклы приёма и `sweep`.
+- `intake.py` — опрос `inbox/`; `imaging.py` — Pillow; `prep.py` — подготовка;
+  `jobs.py` — задачи (стадии, неудача, отмена, повтор); `runs.py` — запуски и `claim`;
+  `results.py` — входы, выходы, `complete`; `workflows.py` — реестр `workflows/registry.yaml`.
+- `api/ui.py` (доска, карточка, подготовка, файлы), `api/pc.py` (панель «ПК», запуски),
+  `api/review.py` (проверка, доработка), `api/agent.py` (протокол агента). Jinja2 + htmx +
+  Alpine; JS-библиотеки лежат в `app/static/vendor/` (без CDN).
+- `agent/restore_agent/` — `runner.py` (цикл, подъём ComfyUI, config на лету), `client.py`
+  (сервер, повторы с паузой), `comfy.py` (HTTP API ComfyUI), `fake.py` (`FAKE_COMFY=1`),
+  `wiring.py` (клиенты по конфигу), `config.py`, `update.py` (обновление с GitHub).
+- Тесты: `tests/`; картинки генерируются в `tests/imgutil.py`; сквозной прогон агента —
+  `tests/test_agent_e2e.py`.

@@ -50,6 +50,17 @@ def describe_event(ev: Event) -> str:
             text = f"{status_label(d.get('from'))} → {status_label(d.get('to'))}"
             if prepared := d.get("prepared"):
                 text += f" · подготовлено {prepared['width']}×{prepared['height']}"
+            if d.get("job_id"):
+                text += f" · задача #{d['job_id']}"
+            if d.get("variants"):
+                text += f" · варианты {', '.join(d['variants'])}"
+            if d.get("source") and d.get("to") == "QUEUED_EDIT":
+                text += f" · доработка из {d['source']}"
+            if d.get("cancelled"):
+                text += " · отменена"
+            if d.get("error"):
+                attempt = f" (попытка {d['attempt']})" if d.get("attempt") else ""
+                text += f" · ошибка{attempt}: {d['error']}"
             return text
         case "similar":
             items = ", ".join(
@@ -58,7 +69,22 @@ def describe_event(ev: Event) -> str:
             return f"Похоже на {items}"
         case "job_created":
             kind = JOB_TYPE_LABELS.get(JobType(d["type"]), d["type"])
-            return f"Создана задача #{d['job_id']}: {kind}"
+            text = f"Создана задача #{d['job_id']}: {kind}"
+            if d.get("retry_of"):
+                text += f" (повтор #{d['retry_of']})"
+            return text
+        case "variant_hide":
+            return f"Скрыт вариант {d['variant']}"
+        case "variant_show":
+            return f"Возвращён вариант {d['variant']}"
+        case "run_started":
+            scope = "всё" if d.get("scope") == "all" else "выбранные"
+            return f"Запуск #{d['run_id']} ({scope}), задач: {d.get('jobs', '?')}"
+        case "run_stopped":
+            return f"Запуск #{d['run_id']} остановлен"
+        case "run_completed":
+            done, failed = d.get("done", 0), d.get("failed", 0)
+            return f"Запуск #{d['run_id']} завершён: готово {done}, ошибок {failed}"
         case "jobs_cancelled":
             return "Отменены задачи: " + ", ".join(f"#{i}" for i in d["job_ids"])
         case "reprepared":

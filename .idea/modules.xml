@@ -4,6 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/photo-restore.iml" filepath="$PROJECT_DIR$/.idea/photo-restore.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/photo-restore-server.iml" filepath="$PROJECT_DIR$/.idea/photo-restore-server.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/restore-agent.iml" filepath="$PROJECT_DIR$/.idea/restore-agent.iml" />
     </modules>
   </component>
 </project>

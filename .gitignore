@@ -11,6 +11,7 @@ var/
 *.db-shm
 deploy/*.env
 deploy/.env
+agent/config.toml
 
 # ТЗ с деталями домашней сети — только локально
 docs/SPEC.md

@@ -11,3 +11,6 @@ var
 tests
 docs
 deploy/*.env
+agent/restore_agent
+agent/.venv
+agent/config.toml

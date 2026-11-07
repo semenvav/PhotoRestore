@@ -149,6 +149,15 @@ class Variant(Base):
     hidden: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
+    @property
+    def number(self) -> int:
+        """Номер из имени файла: `variants/v007.png` → 7."""
+        return int(self.path.rsplit("/", 1)[-1].removeprefix("v").removesuffix(".png"))
+
+    @property
+    def label(self) -> str:
+        return f"v{self.number:03d}"
+
 
 class Job(Base):
     __tablename__ = "job"
@@ -162,6 +171,8 @@ class Job(Base):
     attempts: Mapped[int] = mapped_column(default=0)
     max_attempts: Mapped[int] = mapped_column(default=3)
     agent_id: Mapped[str | None] = mapped_column(String(64))
+    # запуск, в рамках которого задачу взяли последний раз — для прогресса запуска
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("run.id"), index=True)
     lease_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
     progress: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)

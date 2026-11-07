@@ -18,6 +18,10 @@
       <a href="/prep" {% if request.url.path.startswith("/prep") %}aria-current="page"{% endif %}>
         Подготовка{% if hdr.prep_count %} <span class="count">{{ hdr.prep_count }}</span>{% endif %}
       </a>
+      <a href="/review" {% if request.url.path.startswith("/review") %}aria-current="page"{% endif %}>
+        Проверка{% if hdr.review_count %} <span class="count">{{ hdr.review_count }}</span>{% endif %}
+      </a>
+      <a href="/pc" {% if request.url.path == "/pc" %}aria-current="page"{% endif %}>ПК</a>
     </nav>
     <div class="hdr-status" hx-get="/partials/header" hx-trigger="every 5s" hx-swap="innerHTML">
       {% include "_header_status.html" %}

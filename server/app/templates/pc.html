@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}ПК · Реставрация{% endblock %}
+{% block main %}
+<h1>ПК</h1>
+<div id="pc-body" hx-get="/partials/pc" hx-trigger="every 5s" hx-swap="innerHTML">
+  {% include "_pc_body.html" %}
+</div>
+{% endblock %}

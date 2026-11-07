@@ -1,0 +1,85 @@
+{% macro duration(seconds) -%}
+{%- if seconds is none -%}—
+{%- elif seconds < 90 -%}{{ seconds | round | int }} с
+{%- elif seconds < 5400 -%}{{ (seconds / 60) | round | int }} мин
+{%- else -%}{{ (seconds / 3600) | round(1) }} ч
+{%- endif -%}
+{%- endmacro %}
+<div class="pc-grid">
+  <section class="panel">
+    <h2>Агент</h2>
+    {% if not agent %}
+    <p class="muted">Агент ещё не подключался. Запустите <code>python -m restore_agent</code> на ПК.</p>
+    {% else %}
+    <dl class="facts">
+      <dt>Состояние</dt>
+      <dd>
+        {% if outdated %}<span class="chip bad">Обновите агента: {{ agent.version }} &lt; {{ min_version }}</span>
+        {% elif online %}<span class="chip ok"><span class="dot"></span>онлайн</span>
+        {% else %}<span class="chip off"><span class="dot"></span>офлайн</span>{% endif %}
+      </dd>
+      <dt>ComfyUI</dt><dd>{{ "доступен" if agent.comfy_ok else "не запущен" }}</dd>
+      <dt>GPU</dt><dd>{{ agent.gpu_name or "—" }}</dd>
+      <dt>Свободно VRAM</dt><dd>{% if agent.vram_free_mb is not none %}{{ (agent.vram_free_mb / 1024) | round(1) }} ГБ{% else %}—{% endif %}</dd>
+      <dt>Последний сигнал</dt><dd>{{ agent.last_seen | ago }}</dd>
+      <dt>Агент</dt><dd>{{ agent.name or agent.id }} · {{ agent.version or "?" }}</dd>
+    </dl>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Очередь</h2>
+    <table class="jobs">
+      <tr><th>Тип</th><th>В очереди</th><th>Обычно</th><th>Оценка</th></tr>
+      {% for r in queue_rows %}
+      <tr>
+        <td>{{ JOB_TYPE_LABELS[r.type] }}{% if not r.has_workflow %} <span class="muted">(нет workflow)</span>{% endif %}</td>
+        <td>{{ r.count }}</td>
+        <td>{{ duration(r.typical_s) }}</td>
+        <td>{{ duration(r.estimate_s) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    {% if run %}
+    <div class="run-box">
+      <p><b>Запуск #{{ run.id }}</b> ({{ "все задачи" if run.scope == "all" else "выбранные фото" }}) идёт с {{ run.started_at | localtime("%H:%M") }}:
+        готово {{ progress.done }}{% if progress.failed %}, ошибок {{ progress.failed }}{% endif %},
+        в работе {{ progress.running }}, осталось {{ progress.remaining }}.</p>
+      <progress max="{{ progress.total or 1 }}" value="{{ progress.done + progress.failed }}"></progress>
+      <form method="post" action="/runs/stop"><button>Стоп</button></form>
+      <p class="hint">«Стоп»: новые задачи не выдаются, текущая доработается.</p>
+    </div>
+    {% else %}
+    <form method="post" action="/runs/start" class="run-box">
+      <button class="primary" {% if not queued_total %}disabled{% endif %}>Запустить всё{% if queued_total %} ({{ queued_total }}){% endif %}</button>
+      <p class="hint">Без запуска агент не берёт ни одной задачи. Выбранные фото можно запустить с доски.</p>
+    </form>
+    {% endif %}
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Задачи</h2>
+  {% if not active_jobs and not recent_jobs %}
+  <p class="muted">Задач пока нет.</p>
+  {% else %}
+  <table class="jobs wide">
+    <tr><th>#</th><th>Фото</th><th>Тип</th><th>Статус</th><th>Ход</th><th></th></tr>
+    {% for j in active_jobs + recent_jobs %}
+    <tr>
+      <td>{{ j.id }}</td>
+      <td><a href="/photo/{{ j.photo_id }}">{{ j.photo_id | code }}</a></td>
+      <td>{{ JOB_TYPE_LABELS[j.type] }}{% if j.payload.seeds %} ×{{ j.payload.seeds | length }}{% endif %}</td>
+      <td>{{ JOB_STATUS_LABELS[j.status] }}{% if j.attempts %} <span class="muted">попыток {{ j.attempts }}</span>{% endif %}
+        {% if j.error %}<div class="muted small" title="{{ j.error }}">{{ j.error | truncate(80) }}</div>{% endif %}</td>
+      <td>{% if j.status == "claimed" and j.progress %}{{ j.progress.done }}/{{ j.progress.total }}{% if j.progress.stage %} · {{ j.progress.stage }}{% endif %}
+          {% elif j.finished_at %}{{ j.finished_at | localtime("%d.%m %H:%M") }}{% endif %}</td>
+      <td>{% if j.status in ("queued", "claimed") %}
+        <form method="post" action="/jobs/{{ j.id }}/cancel"><input type="hidden" name="back" value="/pc"><button class="link">Отменить</button></form>
+      {% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</section>

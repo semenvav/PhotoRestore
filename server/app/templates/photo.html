@@ -9,7 +9,12 @@
   {% if photo.attention %}<span class="chip attn">Требует внимания</span>{% endif %}
 </div>
 
-{% if photo.attention %}<div class="error">{{ photo.attention_reason }}</div>{% endif %}
+{% if photo.attention %}
+<div class="error attn-box">
+  <span>{{ photo.attention_reason }}</span>
+  {% if can_retry %}<form method="post" action="/photo/{{ photo.id }}/retry"><button>Повторить</button></form>{% endif %}
+</div>
+{% endif %}
 {% if duplicate_of %}
 <div class="notice">Дубль фото <a href="/photo/{{ duplicate_of.id }}">{{ duplicate_of.code }}</a>
   ({{ duplicate_of.original_name }}) — совпадает побайтно.</div>
@@ -33,8 +38,11 @@
 
   <aside class="side">
     <div class="actions">
+      {% if variants_count %}
+      <a class="btn primary" href="/review/{{ photo.id }}">{{ "Проверить" if photo.status == "REVIEW" else "Варианты" }} ({{ variants_count }})</a>
+      {% endif %}
       {% if can_prep %}
-      <a class="btn primary" href="/prep/{{ photo.id }}">{{ "Подготовить" if photo.status == "PREP" else "Переподготовить" }}</a>
+      <a class="btn {{ '' if variants_count else 'primary' }}" href="/prep/{{ photo.id }}">{{ "Подготовить" if photo.status == "PREP" else "Переподготовить" }}</a>
       {% endif %}
       {% if can_unhold %}
       <form method="post" action="/photo/{{ photo.id }}/unhold"><button>Вернуть в работу</button></form>
@@ -62,13 +70,14 @@
     {% if jobs %}
     <h2>Задачи</h2>
     <table class="jobs">
-      <tr><th>#</th><th>Тип</th><th>Статус</th><th>Создана</th></tr>
+      <tr><th>#</th><th>Тип</th><th>Статус</th><th>Создана</th><th></th></tr>
       {% for j in jobs %}
       <tr>
         <td>{{ j.id }}</td>
         <td>{{ JOB_TYPE_LABELS[j.type] }}{% if j.payload.seeds %} ×{{ j.payload.seeds | length }}{% endif %}</td>
-        <td>{{ JOB_STATUS_LABELS[j.status] }}{% if j.error %} <span class="muted" title="{{ j.error }}">⚠</span>{% endif %}</td>
+        <td>{{ JOB_STATUS_LABELS[j.status] }}{% if j.status == "claimed" and j.progress %} {{ j.progress.done }}/{{ j.progress.total }}{% endif %}{% if j.error %} <span class="muted" title="{{ j.error }}">⚠</span>{% endif %}</td>
         <td>{{ j.created_at | localtime }}</td>
+        <td>{% if j.status in ("queued", "claimed") %}<form method="post" action="/jobs/{{ j.id }}/cancel"><button class="link">Отменить</button></form>{% endif %}</td>
       </tr>
       {% endfor %}
     </table>

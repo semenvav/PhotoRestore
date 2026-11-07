@@ -6,6 +6,7 @@
     </content>
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="photo-restore-server" exported="" />
+    <orderEntry type="module" module-name="restore-agent" exported="" />
     <orderEntry type="jdk" jdkName="S:\PhotoRestore\.venv" jdkType="Python SDK" />
   </component>
 </module>

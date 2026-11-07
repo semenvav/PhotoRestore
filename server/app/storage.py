@@ -11,6 +11,11 @@ from app.models import photo_code
 
 ALLOWED_EXT = frozenset({"jpg", "jpeg", "png", "webp", "tif", "tiff", "avif"})
 _PREVIEW_KIND = re.compile(r"^[a-z0-9_]{1,40}$")
+_VARIANT_NAME = re.compile(r"^v(\d{3,})\.png$")
+
+
+def variant_label(number: int) -> str:
+    return f"v{number:03d}"
 
 
 def original_ext(original_name: str) -> str:
@@ -51,11 +56,36 @@ class Store:
             n += 1
         return path
 
+    def variants_dir(self, photo_id: int) -> Path:
+        return self.photo_dir(photo_id) / "variants"
+
+    def variant_file(self, photo_id: int, number: int) -> Path:
+        return self.variants_dir(photo_id) / f"{variant_label(number)}.png"
+
+    def next_variant_number(self, photo_id: int) -> int:
+        """Номер по файлам, а не по БД: вариант никогда не перезаписывается."""
+        numbers = [
+            int(m.group(1))
+            for f in self.variants_dir(photo_id).glob("v*.png")
+            if (m := _VARIANT_NAME.match(f.name))
+        ]
+        return max(numbers, default=0) + 1
+
+    def job_dir(self, photo_id: int, job_id: int) -> Path:
+        """Результаты задачи до `complete`: варианты создаются только из полной задачи."""
+        return self.photo_dir(photo_id) / "jobs" / str(job_id)
+
+    def job_output(self, photo_id: int, job_id: int, index: int) -> Path:
+        return self.job_dir(photo_id, job_id) / f"out_{index}.png"
+
     def cache_dir(self, photo_id: int) -> Path:
         return self.photo_dir(photo_id) / "cache"
 
     def thumb(self, photo_id: int) -> Path:
         return self.cache_dir(photo_id) / "thumb.webp"
+
+    def variant_thumb(self, photo_id: int, number: int) -> Path:
+        return self.cache_dir(photo_id) / f"thumb_{variant_label(number)}.webp"
 
     def preview(self, photo_id: int, kind: str) -> Path:
         if not _PREVIEW_KIND.match(kind):

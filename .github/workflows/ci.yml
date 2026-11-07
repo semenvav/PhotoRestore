@@ -33,10 +33,10 @@ jobs:
         run: uv sync --frozen
 
       - name: Format
-        run: uv run ruff format --check server tests
+        run: uv run ruff format --check server agent tests
 
       - name: Lint
-        run: uv run ruff check server tests
+        run: uv run ruff check server agent tests
 
       - name: Types
         run: uv run mypy

@@ -1,0 +1,6 @@
+# Везде LF, независимо от core.autocrlf: скрипты и правки не спотыкаются о CRLF
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.webp binary

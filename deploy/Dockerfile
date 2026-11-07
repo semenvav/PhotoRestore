@@ -18,10 +18,13 @@ WORKDIR /srv
 # Зависимости — отдельным слоем, чтобы правки кода не пересобирали их
 COPY pyproject.toml uv.lock ./
 COPY server/pyproject.toml server/pyproject.toml
+# агент в образ не ставится, но его pyproject нужен uv, чтобы разобрать workspace
+COPY agent/pyproject.toml agent/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package photo-restore-server --no-install-workspace
 
 COPY server/ server/
+COPY workflows/ workflows/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package photo-restore-server
 

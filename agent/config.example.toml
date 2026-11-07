@@ -1,0 +1,32 @@
+# Конфиг агента photo-restore. install.ps1 копирует его в config.toml рядом и оставляет права
+# только текущему пользователю: в файле токен. Заполните server_url, token и agent_id.
+#
+# Файл можно править на ходу: агент проверяет его каждые 15 с и применяет изменения без
+# перезапуска (кроме workdir). Файл с ошибкой не применяется — агент пишет об этом в agent.log
+# и работает со старыми настройками.
+
+# Адрес сервера — тот же, что в браузере; путь /api/agent/v1 агент добавит сам
+server_url = "https://restore.example.org"
+
+# AGENT_TOKEN сервера (>= 32 случайных байт)
+token = ""
+
+# Имя этого ПК для сервера (латиницей, без пробелов)
+agent_id = "workpc"
+# name = "Рабочий ПК"
+
+# ComfyUI слушает только 127.0.0.1
+comfy_url = "http://127.0.0.1:8188"
+
+# Чем запустить ComfyUI, если он не отвечает, когда есть работа (необязательно).
+# Агент ждёт его до 3 минут; упал или закрыли — запустит снова (не чаще раза в минуту).
+# Команда должна работать, пока работает ComfyUI, и завершаться вместе с ним: не .bat с pause
+# в конце (иначе агент считает, что ComfyUI ещё стартует). Пример для portable-сборки:
+# comfy_launch_cmd = 'C:\ComfyUI_windows_portable\python_embeded\python.exe -s C:\ComfyUI_windows_portable\ComfyUI\main.py --windows-standalone-build --listen 127.0.0.1 --port 8188 --disable-auto-launch'
+
+# Рабочая папка: временные файлы задач и agent.log (по умолчанию %LOCALAPPDATA%\restore-agent)
+# workdir = 'D:\restore-agent'
+
+# Без GPU, для проверки связи с сервером: вместо ComfyUI вход возвращается с напечатанным seed
+# (то же, что переменная окружения FAKE_COMFY=1)
+# fake_comfy = true

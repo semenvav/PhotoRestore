@@ -19,18 +19,19 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import deletion, jobs, prep, states
+from app import deletion, jobs, prep, runs, states
+from app.api.agent import agent_compatible
 from app.db import session_scope, utcnow
 from app.imaging import PrepParams, UnsupportedImage
 from app.intake import Intake
-from app.models import Actor, Agent, Event, Job, Photo, Run, RunState, Status
+from app.models import Actor, Agent, Event, Job, Photo, Status, Variant
 from app.states import BOARD_ORDER, LABELS, TransitionError
 from app.storage import ALLOWED_EXT, Store
 from app.views import AGENT_OFFLINE_AFTER
 
 router = APIRouter()
 
-PREVIEW_KINDS = frozenset({"original", "prepared"})
+_PREVIEW_KIND = re.compile(r"^(original|prepared|v\d{3,})$")
 ALL_ALBUMS = "*"
 _BAD_NAME_CHARS = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
 _PHOTO_REF = re.compile(r"^\s*(?:r\s*-?\s*)?0*(\d+)\s*$", re.IGNORECASE)
@@ -75,13 +76,30 @@ def load_photo(session: Session, photo_id: int) -> Photo:
     return photo
 
 
+def current_agent(session: Session) -> Agent | None:
+    return session.scalar(select(Agent).order_by(Agent.last_seen.desc()).limit(1))
+
+
+def agent_online(agent: Agent | None) -> bool:
+    return bool(agent and agent.last_seen and utcnow() - agent.last_seen < AGENT_OFFLINE_AFTER)
+
+
+def status_count(session: Session, status: Status) -> int:
+    return session.scalar(select(func.count()).where(Photo.status == status)) or 0
+
+
 def header_ctx(session: Session) -> dict[str, Any]:
-    agents = session.scalars(select(Agent).order_by(Agent.last_seen.desc())).all()
-    agent = agents[0] if agents else None
-    online = bool(agent and agent.last_seen and utcnow() - agent.last_seen < AGENT_OFFLINE_AFTER)
-    run = session.scalar(select(Run).where(Run.state == RunState.ACTIVE))
-    prep_count = session.scalar(select(func.count()).where(Photo.status == Status.PREP)) or 0
-    return {"agent": agent, "agent_online": online, "run": run, "prep_count": prep_count}
+    agent = current_agent(session)
+    run = runs.active_run(session)
+    return {
+        "agent": agent,
+        "agent_online": agent_online(agent),
+        "agent_outdated": agent is not None and not agent_compatible(agent.version),
+        "run": run,
+        "run_progress": runs.progress(session, run, jobs.LOCAL_TYPES) if run else None,
+        "prep_count": status_count(session, Status.PREP),
+        "review_count": status_count(session, Status.REVIEW),
+    }
 
 
 @router.get("/healthz")
@@ -199,6 +217,8 @@ def photo_card(
         "can_unhold": photo.status in (Status.ON_HOLD, Status.DUPLICATE),
         "can_delete": deletion.can_delete(photo),
         "duplicates": deletion.duplicates_of(session, photo.id),
+        "can_retry": photo.attention and jobs.can_retry(session, photo),
+        "variants_count": session.scalar(select(func.count()).where(Variant.photo_id == photo.id)),
         "msg": msg,
     }
     return render(request, "photo.html", ctx)
@@ -269,6 +289,14 @@ def bulk_action(
     if action == "delete":
         result = deletion.delete_photos(session, request.app.state.store, ids)
         return RedirectResponse(with_msg(safe_back(back), delete_msg(result)), status_code=303)
+    if action == "run":
+        try:
+            run = runs.start(session, request.app.state.registry.job_types(), ids)
+            session.commit()
+            msg = f"Запуск #{run.id}: задач {len(run.job_ids or [])}"
+        except runs.RunError as e:
+            msg = str(e)
+        return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
     if action not in ACTIONS:
         raise HTTPException(400, "неизвестное действие")
     done, errors = 0, []
@@ -461,7 +489,7 @@ def file_thumb(session: SessionDep, store: StoreDep, photo_id: int) -> Response:
 
 @router.get("/files/{photo_id}/preview/{kind}")
 def file_preview(session: SessionDep, store: StoreDep, photo_id: int, kind: str) -> Response:
-    if kind not in PREVIEW_KINDS:
+    if not _PREVIEW_KIND.match(kind):
         raise HTTPException(404)
     load_photo(session, photo_id)
     return _file(store.preview(photo_id, kind), media_type="image/jpeg", headers=_CACHE)

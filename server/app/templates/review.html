@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Проверка {{ photo.code }} · Реставрация{% endblock %}
+{% block main_class %}page review-page{% endblock %}
+{% block main %}
+<div class="review-head">
+  <h1>{{ photo.code }} <span class="muted">{{ photo.original_name }}</span></h1>
+  <span class="chip">{{ photo.status | status_label }}</span>
+  <span class="muted">раунд {{ photo.round }}</span>
+  <nav class="push review-nav">
+    {% if prev_id %}<a class="btn" href="/review/{{ prev_id }}" title="Предыдущее на проверке (←)">← {{ prev_id | code }}</a>{% endif %}
+    {% if next_id %}<a class="btn" href="/review/{{ next_id }}" title="Следующее на проверке (→)">{{ next_id | code }} →</a>{% endif %}
+    <a href="/photo/{{ photo.id }}">Карточка</a>
+  </nav>
+</div>
+
+{% if photo.family_comment %}<div class="notice"><b>Комментарий отца:</b> {{ photo.family_comment }}</div>{% endif %}
+{% if photo.attention %}<div class="error">{{ photo.attention_reason }}</div>{% endif %}
+
+{% if not rounds %}
+<div class="notice">
+  Вариантов пока нет{% if photo.status in ("QUEUED_EDIT", "EDITING") %} — они появятся после обработки на ПК{% endif %}.
+  {% if hidden_count %}<a href="?hidden=1">Показать скрытые ({{ hidden_count }})</a>{% endif %}
+</div>
+{% else %}
+<div class="review">
+  <section class="viewer">
+    <div class="viewer-bar">
+      <div class="seg">
+        <button type="button" data-mode="compare" aria-pressed="true">Два рядом</button>
+        <button type="button" data-mode="grid" aria-pressed="false">Сетка 2×2</button>
+      </div>
+      <label class="pair">Слева <select id="pick-left" aria-label="Слева"></select></label>
+      <label class="pair">Справа <select id="pick-right" aria-label="Справа"></select></label>
+      <span class="push"></span>
+      <output id="zoom-out" class="muted">вписано</output>
+      <button type="button" data-zoom="fit">Вписать</button>
+      <button type="button" data-zoom="100">100%</button>
+    </div>
+
+    <div id="compare" class="vstage compare">
+      <div class="layer" data-slot="right"><img alt=""></div>
+      <div class="layer over" data-slot="left"><img alt=""></div>
+      <div class="divider" title="Перетащите"><span class="grip"></span></div>
+      <span class="tag left" data-tag="left"></span>
+      <span class="tag right" data-tag="right"></span>
+    </div>
+
+    <div id="grid" class="grid4" hidden>
+      {% for i in range(4) %}
+      <div class="vstage cell"><div class="layer" data-slot="g{{ i }}"><img alt=""></div><span class="tag left" data-tag="g{{ i }}"></span></div>
+      {% endfor %}
+    </div>
+    <p class="hint">Колесо — масштаб, перетаскивание — сдвиг, двойной щелчок — 100% ↔ вписать; зум и сдвиг общие для всех панелей.
+      <kbd>1</kbd>–<kbd>9</kbd> — вариант, <kbd>←</kbd> <kbd>→</kbd> — соседние фото.</p>
+  </section>
+
+  <aside class="feed">
+    {% for round, items in rounds %}
+    <h2>Раунд {{ round }}</h2>
+    <div class="tiles">
+      {% for v in items %}
+      <button type="button" class="tile{% if v.hidden %} is-hidden{% endif %}" data-key="v{{ v.id }}"
+              title="{{ tooltips[v.id] }}" aria-pressed="{{ 'true' if selected and selected.id == v.id else 'false' }}">
+        <img src="/files/{{ photo.id }}/variant/{{ v.id }}/thumb" alt="{{ v.label }}" loading="lazy">
+        <span class="n">{{ numbers[v.id] }}</span>
+        <span class="badge src-{{ v.source }}">{{ source_labels[v.source] }}</span>
+        <span class="lbl">{{ v.label }}{% if v.hidden %} · скрыт{% endif %}</span>
+      </button>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    {% if hidden_count %}
+    <p><a href="?hidden={{ 0 if show_hidden else 1 }}">{{ "Убрать скрытые" if show_hidden else "Показать скрытые (%d)" % hidden_count }}</a></p>
+    {% endif %}
+
+    <div class="variant-actions" id="variant-actions" hidden>
+      <b id="sel-label"></b>
+      <a class="btn" id="sel-download" href="#">Скачать PNG</a>
+      <form method="post" id="sel-visibility" action="#"><button id="sel-visibility-btn">Скрыть</button></form>
+    </div>
+
+    {% if can_refine %}
+    <form class="refine" method="post" action="/review/{{ photo.id }}/refine">
+      <h2>Доработать локально</h2>
+      <details><summary>Базовый промпт</summary><pre>{{ base_prompt }}</pre></details>
+      {% if addons %}
+      <div class="chips">
+        {% for a in addons %}
+        <label class="chip-check" title="{{ a.text }}"><input type="checkbox" name="addons" value="{{ a.id }}"> {{ a.name }}</label>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <textarea name="text" rows="3" maxlength="4000" placeholder="Свой текст к промпту (по-английски), необязательно"></textarea>
+      <fieldset class="src">
+        <legend>Источник</legend>
+        <label><input type="radio" name="source" value="prepared" checked> подготовленное фото</label>
+        <label><input type="radio" name="source" value="variant" id="src-variant-radio"> вариант <span id="src-label">—</span></label>
+        <input type="hidden" name="variant_id" id="src-variant">
+      </fieldset>
+      <label class="count-pick">Вариантов
+        <select name="variants">
+          {% for n in range(1, max_variants + 1) %}<option value="{{ n }}"{% if n == default_variants %} selected{% endif %}>{{ n }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="primary">В очередь на ПК</button>
+      <p class="hint">Фото уйдёт в очередь (раунд {{ photo.round + 1 }}), а агент возьмёт задачу после «Запустить».</p>
+    </form>
+    {% endif %}
+  </aside>
+</div>
+{% endif %}
+
+<h2>История</h2>
+<ol class="timeline">
+  {% for ev in events %}
+  <li>
+    <time>{{ ev.ts | localtime }}</time>
+    <span class="who">{{ ACTOR_LABELS[ev.actor] }}</span>
+    <span class="what">{{ describe_event(ev) }}</span>
+  </li>
+  {% endfor %}
+</ol>
+<script type="application/json" id="review-config">{{ config | tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="/static/review.js"></script>{% endblock %}

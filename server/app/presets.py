@@ -17,6 +17,18 @@ BASE_PROMPT = (
     "anything."
 )
 
+# Чипы-добавки к промпту для «Доработать локально» (редактор пресетов — в M4)
+DEFAULT_ADDONS = [
+    (
+        "Сильнее чистка",
+        "Remove damage more aggressively: deep scratches, cracks, creases, "
+        "missing emulsion and large stains.",
+    ),
+    ("Сохранить зерно", "Keep the original film grain and paper texture; do not smooth the image."),
+    ("Лица чётче", "Make faces slightly sharper and clearer without changing any facial features."),
+    ("Мягкий контраст", "Keep contrast gentle: do not crush shadows or blow out highlights."),
+]
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "edit": {"variants": 3, "steps": 8, "megapixels": 1.5},
     "upscale": {"model": "7b_fp16", "target_mp": 4.0, "max_scale": 2.0},
@@ -37,6 +49,10 @@ def ensure_defaults(session: Session) -> None:
     has_base = session.scalar(select(Preset.id).where(Preset.kind == PresetKind.BASE).limit(1))
     if has_base is None:
         session.add(Preset(kind=PresetKind.BASE, name="Базовый", text=BASE_PROMPT, sort=0))
+    has_addon = session.scalar(select(Preset.id).where(Preset.kind == PresetKind.ADDON).limit(1))
+    if has_addon is None:
+        for i, (name, text) in enumerate(DEFAULT_ADDONS):
+            session.add(Preset(kind=PresetKind.ADDON, name=name, text=text, sort=i))
 
 
 def get_setting(session: Session, key: str) -> Any:
