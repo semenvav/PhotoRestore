@@ -39,6 +39,17 @@ def test_board_empty(client: TestClient) -> None:
     assert "Фото пока нет" in r.text
 
 
+def test_avif_upload_and_original(client: TestClient, intake: Intake) -> None:
+    assert ".avif" in client.get("/").text.split('type="file"')[1].split(">")[0]
+    data = encode(gradient(120, 80), "AVIF")
+    r = client.post("/upload", files={"files": ("phone.avif", data, "image/avif")})
+    assert r.status_code == 200
+    intake.poll()
+    r = client.get("/files/1/original")
+    assert r.content == data
+    assert r.headers["content-type"] == "image/avif"
+
+
 def test_build_version_reported(settings: Settings) -> None:
     settings.app_version = "0.1.7"
     with TestClient(create_app(settings)) as c:

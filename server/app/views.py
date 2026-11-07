@@ -70,6 +70,10 @@ def describe_event(ev: Event) -> str:
             return f"Файл «{d['path']}» не принят ({d['reason']}) → {d['moved_to']}"
         case "uploaded":
             return f"Загружено через интерфейс: {d['path']}"
+        case "deleted":
+            return f"Удалено {d['code']} «{d['original_name']}», файлы — в store/.deleted"
+        case "promoted":
+            return f"Стало основным: дубль удалённого {photo_code(d['deleted'])}"
         case _:
             return f"{ev.kind}: {d}"
 

@@ -57,14 +57,6 @@ services:
 volumes:
   restore-db:
 
-# Вариант без маунта на хосте — NFS-том Docker (тогда в volumes: restore-data:/data):
-#  restore-data:
-#    driver: local
-#    driver_opts:
-#      type: nfs
-#      o: "addr=nas.example.lan,nfsvers=4.2,rw,hard"
-#      device: ":/export/path/restore"
-
 networks:
   proxy:
     external: true

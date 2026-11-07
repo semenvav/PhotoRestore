@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import jobs, prep, states
+from app import deletion, jobs, prep, states
 from app.db import session_scope, utcnow
 from app.imaging import PrepParams, UnsupportedImage
 from app.intake import Intake
@@ -55,6 +55,11 @@ StoreDep = Annotated[Store, Depends(get_store)]
 def render(request: Request, name: str, ctx: dict[str, Any], status_code: int = 200) -> Response:
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
+
+
+def safe_back(url: str) -> str:
+    """Возврат только на свой путь: `//host` и абсолютные адреса заменяются доской."""
+    return url if url.startswith("/") and not url.startswith("//") else "/"
 
 
 def with_msg(url: str, msg: str | None) -> str:
@@ -149,6 +154,7 @@ def board(
         "hdr": header_ctx(session),
         "albums": albums,
         "notices": notices,
+        "accept": ",".join(f".{ext}" for ext in sorted(ALLOWED_EXT)),
         "msg": msg,
     }
     return render(request, "board.html", ctx)
@@ -191,6 +197,8 @@ def photo_card(
         "can_prep": photo.status in prep.PREPARABLE,
         "can_hold": states.can_transition(photo.status, Status.ON_HOLD, Actor.OWNER),
         "can_unhold": photo.status in (Status.ON_HOLD, Status.DUPLICATE),
+        "can_delete": deletion.can_delete(photo),
+        "duplicates": deletion.duplicates_of(session, photo.id),
         "msg": msg,
     }
     return render(request, "photo.html", ctx)
@@ -210,6 +218,31 @@ def unhold(session: Session, photo: Photo, actor: Actor = Actor.OWNER) -> None:
 ACTIONS = {"hold": hold, "unhold": unhold}
 
 
+def delete_msg(result: deletion.DeleteResult) -> str:
+    parts = []
+    if result.deleted:
+        parts.append(f"Удалено: {', '.join(result.deleted)}")
+    for gone, head in result.promoted.items():
+        parts.append(f"основным вместо {gone} стал его дубль {head}")
+    if result.busy:
+        parts.append(f"в обработке, не удалено: {', '.join(result.busy)}")
+    return "; ".join(parts) or "Нечего удалять"
+
+
+@router.post("/photo/{photo_id}/delete")
+def photo_delete(
+    session: SessionDep,
+    store: StoreDep,
+    photo_id: int,
+    back: Annotated[str, Form()] = "/",
+) -> Response:
+    photo = load_photo(session, photo_id)
+    result = deletion.delete_photos(session, store, [photo.id])
+    if not result.deleted:
+        return RedirectResponse(with_msg(f"/photo/{photo_id}", delete_msg(result)), status_code=303)
+    return RedirectResponse(with_msg(safe_back(back), delete_msg(result)), status_code=303)
+
+
 @router.post("/photo/{photo_id}/{action}")
 def photo_action(session: SessionDep, photo_id: int, action: str) -> Response:
     if action not in ACTIONS:
@@ -227,11 +260,15 @@ def photo_action(session: SessionDep, photo_id: int, action: str) -> Response:
 
 @router.post("/bulk")
 def bulk_action(
+    request: Request,
     session: SessionDep,
     action: Annotated[str, Form()],
     ids: Annotated[list[int], Form()],
     back: Annotated[str, Form()] = "/",
 ) -> Response:
+    if action == "delete":
+        result = deletion.delete_photos(session, request.app.state.store, ids)
+        return RedirectResponse(with_msg(safe_back(back), delete_msg(result)), status_code=303)
     if action not in ACTIONS:
         raise HTTPException(400, "неизвестное действие")
     done, errors = 0, []
@@ -249,9 +286,7 @@ def bulk_action(
     msg = f"Готово: {done}"
     if errors:
         msg += f"; недоступно для {', '.join(errors)}"
-    if not back.startswith("/") or back.startswith("//"):
-        back = "/"
-    return RedirectResponse(with_msg(back, msg), status_code=303)
+    return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
 
 
 # --- подготовка -------------------------------------------------------------------------
@@ -282,6 +317,14 @@ def prep_editor(request: Request, session: SessionDep, store: StoreDep, photo_id
         .order_by(Event.id.desc())
         .limit(1)
     ).first()
+    similar_photos = similar.data["photos"] if similar else []
+    if similar_photos:  # похожие могли удалить
+        alive = set(
+            session.scalars(
+                select(Photo.id).where(Photo.id.in_([s["photo_id"] for s in similar_photos]))
+            )
+        )
+        similar_photos = [s for s in similar_photos if s["photo_id"] in alive]
     in_queue = photo.status == Status.PREP
     position = None
     if in_queue:
@@ -295,7 +338,11 @@ def prep_editor(request: Request, session: SessionDep, store: StoreDep, photo_id
         "editable": photo.status in prep.PREPARABLE,
         "in_queue": in_queue,
         "position": position,
-        "similar": similar.data["photos"] if similar else [],
+        "similar": similar_photos,
+        "can_delete": deletion.can_delete(photo),
+        "duplicates": deletion.duplicates_of(session, photo.id),
+        # после удаления из очереди — к следующему фото
+        "delete_back": f"/prep/{photo.id}/skip" if in_queue else "/",
         "config": {
             "photoId": photo.id,
             "origWidth": photo.width,

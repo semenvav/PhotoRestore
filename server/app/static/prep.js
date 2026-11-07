@@ -157,6 +157,7 @@
 
   document.addEventListener("keydown", (e) => {
     if (busy || !cropper || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (document.querySelector("dialog[open]")) return; // Enter в диалоге — не «Сохранить»
     const t = e.target;
     const typing = t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type !== "range");
     if (typing || t.tagName === "A") return;

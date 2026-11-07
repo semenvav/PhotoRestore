@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_delete.html" as del %}
 {% block title %}{{ photo.code }} · Реставрация{% endblock %}
 {% block main %}
 {% set v = photo.updated_at.timestamp() | int %}
@@ -41,7 +42,9 @@
       {% if can_hold %}
       <form method="post" action="/photo/{{ photo.id }}/hold"><button>Отложить</button></form>
       {% endif %}
+      {% if can_delete %}{{ del.delete_button() }}{% endif %}
     </div>
+    {% if can_delete %}{{ del.delete_dialog(photo, "/", duplicates) }}{% endif %}
 
     <dl class="facts">
       <dt>Исходное имя</dt><dd>{{ photo.original_name }}</dd>

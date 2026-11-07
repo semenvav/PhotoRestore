@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_delete.html" as del %}
 {% block title %}Подготовка {{ photo.code }} · Реставрация{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/vendor/cropper.min.css">{% endblock %}
 {% block main_class %}prep{% endblock %}
@@ -62,12 +63,14 @@
       <button type="button" class="primary" data-act="save">Сохранить <kbd>Enter</kbd></button>
       <button type="button" data-act="nocrop">Без обрезки <kbd>S</kbd></button>
       {% if in_queue %}<a class="btn" id="skip" href="{{ config.skipUrl }}">Пропустить <kbd>→</kbd></a>{% endif %}
+      {% if can_delete %}{{ del.delete_button() }}{% endif %}
     </div>
     <div id="prep-error" class="error" hidden></div>
     <p class="hint">«Без обрезки» сохраняет поворот, но берёт кадр целиком. Колесо мыши — масштаб, перетаскивание — сдвиг фото.</p>
   </aside>
 </div>
 <script type="application/json" id="prep-config">{{ config | tojson }}</script>
+{% if can_delete %}{{ del.delete_dialog(photo, delete_back, duplicates) }}{% endif %}
 {% endif %}
 {% endblock %}
 {% block scripts %}

@@ -110,6 +110,8 @@ def test_similar_photo_only_warns(
         ("doc.pdf", b"%PDF-1.4"),
         ("broken.jpg", b"definitely not a jpeg"),
         ("truncated.jpg", jpeg(size=(640, 480))[:3000]),
+        ("truncated.avif", encode(gradient(640, 480), "AVIF", quality=80)[:400]),
+        ("photo.heic", bytes([0, 0, 0, 24]) + b"ftypheic"),
     ],
 )
 def test_unsupported_moved_aside(
@@ -152,6 +154,21 @@ def test_exif_orientation_sets_dimensions(
     [photo] = photos(factory)
     assert (photo.width, photo.height) == (240, 320)
     assert (settings.store_dir / photo.code / "original.jpg").read_bytes() == data
+
+
+def test_avif_accepted(
+    intake: Intake, inbox: Path, settings: Settings, factory: sessionmaker[Session]
+) -> None:
+    data = encode(gradient(320, 240, noise=False), "AVIF", orientation=6, quality=90)
+    write(inbox / "phone.AVIF", data)
+    intake.poll(), intake.poll()
+    [photo] = photos(factory)
+    assert photo.status == Status.PREP
+    assert (photo.width, photo.height) == (240, 320)
+    photo_dir = settings.store_dir / photo.code
+    assert (photo_dir / "original.avif").read_bytes() == data
+    assert (photo_dir / "cache" / "thumb.webp").is_file()
+    assert (photo_dir / "cache" / "preview_original.jpg").is_file()
 
 
 def test_trusted_upload_taken_on_first_poll(

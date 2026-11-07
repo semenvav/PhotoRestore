@@ -1,0 +1,26 @@
+{# Удаление одного фото: кнопка открывает диалог, удаляет только «Удалить» в диалоге. #}
+{% macro delete_button() %}
+<button type="button" class="danger-outline"
+        onclick="document.getElementById('delete-dialog').showModal()">Удалить…</button>
+{% endmacro %}
+
+{% macro delete_dialog(photo, back, duplicates) %}
+<dialog class="confirm" id="delete-dialog" aria-labelledby="delete-title">
+  <form method="post" action="/photo/{{ photo.id }}/delete">
+    <input type="hidden" name="back" value="{{ back }}">
+    <h2 id="delete-title">Удалить {{ photo.code }}?</h2>
+    <p>«{{ photo.original_name }}» пропадёт из сервиса вместе с подготовкой, вариантами, задачами
+      и историей. Отменить это нельзя.</p>
+    {% if duplicates %}
+    <p>Дубли этого фото ({{ duplicates | map(attribute="code") | join(", ") }}) останутся,
+      основным станет {{ duplicates[0].code }}.</p>
+    {% endif %}
+    <p class="muted">Файлы фото переносятся в <code>store/.deleted</code> — освободить место можно
+      вручную. Файл во «Входящих» не трогается и повторно принят не будет.</p>
+    <div class="dialog-actions">
+      <button type="submit" formmethod="dialog" formnovalidate autofocus>Отмена</button>
+      <button type="submit" class="danger">Удалить</button>
+    </div>
+  </form>
+</dialog>
+{% endmacro %}

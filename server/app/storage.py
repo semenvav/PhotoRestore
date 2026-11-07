@@ -9,7 +9,7 @@ from pathlib import Path
 from app.db import utcnow
 from app.models import photo_code
 
-ALLOWED_EXT = frozenset({"jpg", "jpeg", "png", "webp", "tif", "tiff"})
+ALLOWED_EXT = frozenset({"jpg", "jpeg", "png", "webp", "tif", "tiff", "avif"})
 _PREVIEW_KIND = re.compile(r"^[a-z0-9_]{1,40}$")
 
 
@@ -31,6 +31,10 @@ class Store:
     @property
     def orphans_dir(self) -> Path:
         return self.root / ".orphans"
+
+    @property
+    def deleted_dir(self) -> Path:
+        return self.root / ".deleted"
 
     def photo_dir(self, photo_id: int) -> Path:
         return self.root / photo_code(photo_id)
@@ -61,11 +65,19 @@ class Store:
     def set_aside_orphan(self, photo_id: int) -> Path | None:
         """Если каталог для нового ID уже есть (сбой до commit или БД восстановлена из
         бэкапа), убирает его в `.orphans/`, ничего не удаляя."""
+        return self._set_aside(photo_id, self.orphans_dir)
+
+    def set_aside_deleted(self, photo_id: int) -> Path | None:
+        """Каталог удалённого фото переносится в `.deleted/`: оригинал не удаляется ни
+        одним действием (ТЗ), а место освобождают вручную."""
+        return self._set_aside(photo_id, self.deleted_dir)
+
+    def _set_aside(self, photo_id: int, where: Path) -> Path | None:
         src = self.photo_dir(photo_id)
         if not src.exists():
             return None
-        self.orphans_dir.mkdir(parents=True, exist_ok=True)
-        dest = self.orphans_dir / f"{src.name}-{utcnow():%Y%m%dT%H%M%S%f}"
+        where.mkdir(parents=True, exist_ok=True)
+        dest = where / f"{src.name}-{utcnow():%Y%m%dT%H%M%S%f}"
         shutil.move(src, dest)
         return dest
 

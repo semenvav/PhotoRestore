@@ -31,7 +31,7 @@
   <details class="upload">
     <summary class="btn">Загрузить</summary>
     <form method="post" action="/upload" enctype="multipart/form-data" class="upload-form">
-      <input type="file" name="files" multiple required accept=".jpg,.jpeg,.png,.webp,.tif,.tiff">
+      <input type="file" name="files" multiple required accept="{{ accept }}">
       <input name="album" list="album-list" placeholder="Альбом (необязательно)">
       <datalist id="album-list">{% for a in albums if a %}<option value="{{ a }}">{% endfor %}</datalist>
       <button type="submit" class="primary">Положить во «Входящие»</button>
@@ -45,7 +45,22 @@
   <input type="hidden" name="back" value="/?{{ qs }}">
   <button name="action" value="hold">Отложить</button>
   <button name="action" value="unhold">Вернуть в работу</button>
+  <button type="button" class="danger-outline" @click="$refs.del.showModal()">Удалить…</button>
   <button type="button" class="link" @click="$store.sel.clear()">Снять выбор</button>
+
+  <dialog class="confirm" x-ref="del" aria-labelledby="bulk-delete-title">
+    <h2 id="bulk-delete-title">Удалить выбранные фото: <span x-text="$store.sel.ids.length"></span>?</h2>
+    <p class="codes" x-text="[...$store.sel.ids].sort((a, b) => a - b).map((id) => 'R-' + String(id).padStart(4, '0')).join(', ')"></p>
+    <p>Они пропадут из сервиса вместе с подготовкой, вариантами, задачами и историей.
+      Отменить это нельзя. Фото в обработке на ПК пропускаются. Если у удаляемого фото остаются
+      дубли, основным становится первый из них.</p>
+    <p class="muted">Файлы фото переносятся в <code>store/.deleted</code> — освободить место можно
+      вручную. Файлы во «Входящих» не трогаются и повторно приняты не будут.</p>
+    <div class="dialog-actions">
+      <button type="button" autofocus @click="$refs.del.close()">Отмена</button>
+      <button name="action" value="delete" class="danger">Удалить</button>
+    </div>
+  </dialog>
 </form>
 
 {% if notices %}

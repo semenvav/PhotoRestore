@@ -64,6 +64,13 @@ button.primary, .btn.primary {
   border-color: var(--accent);
   color: var(--accent-ink);
 }
+button.danger, .btn.danger {
+  background: var(--err);
+  border-color: var(--err);
+  color: #ffffff;
+}
+button.danger-outline { color: var(--err); }
+button.danger-outline:hover { border-color: var(--err); }
 button.link, .btn.link {
   border: none;
   background: none;
@@ -316,3 +323,19 @@ body.busy { cursor: progress; }
   .bulk { top: 0; }
   .hdr-status { margin-left: 0; }
 }
+
+/* --- диалог подтверждения --- */
+dialog.confirm {
+  width: min(460px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+}
+dialog.confirm::backdrop { background: rgba(20, 20, 18, 0.45); }
+dialog.confirm h2 { margin: 0 0 12px; font-size: 1.1rem; }
+dialog.confirm p { margin: 0 0 10px; white-space: normal; }
+dialog.confirm .codes { font-weight: 600; overflow-wrap: anywhere; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }

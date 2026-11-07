@@ -55,10 +55,12 @@ def test_exif_orientation_png_exact(tmp_path: Path, orientation: int) -> None:
     assert np.array_equal(np.asarray(oriented), np.asarray(expected))
 
 
+@pytest.mark.parametrize("fmt", ["JPEG", "AVIF"])
 @pytest.mark.parametrize("orientation", [3, 6, 8])
-def test_exif_orientation_jpeg(tmp_path: Path, orientation: int) -> None:
+def test_exif_orientation_lossy(tmp_path: Path, orientation: int, fmt: str) -> None:
     stored = gradient(96, 64, noise=False)
-    path = write(tmp_path / "x.jpg", encode(stored, "JPEG", orientation=orientation, quality=95))
+    data = encode(stored, fmt, orientation=orientation, quality=95)
+    path = write(tmp_path / f"x.{fmt.lower()}", data)
     oriented = load_oriented(path)
     expected = apply(stored, ORIENTATION_FIX[orientation])
     assert oriented.size == expected.size
