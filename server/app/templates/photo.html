@@ -78,7 +78,7 @@
       {% for j in jobs %}
       <tr>
         <td>{{ j.id }}</td>
-        <td>{{ JOB_TYPE_LABELS[j.type] }}{% if j.type == "edit_local" and j.payload.seeds %} ×{{ j.payload.seeds | length }}{% endif %}{% if j.type == "upscale_local" and j.payload.params %} ×{{ j.payload.params.scale }}{% endif %}{% if j.priority > 0 %} <span class="chip" title="Приоритет поднят">↑{{ j.priority }}</span>{% endif %}</td>
+        <td>{{ JOB_TYPE_LABELS[j.type] }}{% if j.type == "edit_local" and j.payload.seeds %} ×{{ j.payload.seeds | length }}{% endif %}{% if j.type == "upscale_local" and j.payload.params %} ×{{ j.payload.params.scale }}{% endif %}{% if j.type == "edit_gemini" and j.cost_usd is not none %} · {{ j.cost_usd | usd }}{% endif %}{% if j.priority > 0 %} <span class="chip" title="Приоритет поднят">↑{{ j.priority }}</span>{% endif %}</td>
         <td>{{ JOB_STATUS_LABELS[j.status] }}{% if j.status == "claimed" and j.progress %} {{ j.progress.done }}/{{ j.progress.total }}{% endif %}{% if j.error %} <span class="muted" title="{{ j.error }}">⚠</span>{% endif %}</td>
         <td>{{ j.created_at | localtime }}</td>
         <td>{% if j.status in ("queued", "claimed") %}<form method="post" action="/jobs/{{ j.id }}/cancel"><button class="link">Отменить</button></form>{% endif %}</td>

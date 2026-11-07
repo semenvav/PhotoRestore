@@ -47,10 +47,36 @@
   <button name="action" value="approve" title="Фото на финале: финал → «Готово»">Утвердить финал</button>
   <button name="action" value="priority" title="Задачи выбранных фото ПК возьмёт раньше остальных">Поднять приоритет</button>
   <button name="action" value="cancel" title="Отменить задачи выбранных фото в очереди и на ПК">Отменить задачи</button>
+  <button type="button" @click="$refs.gem.showModal()"{% if not hdr.gemini_on %} disabled title="Gemini не настроен: нет GEMINI_API_KEY"{% endif %}>В Gemini…</button>
   <button name="action" value="hold">Отложить</button>
   <button name="action" value="unhold">Вернуть в работу</button>
   <button type="button" class="danger-outline" @click="$refs.del.showModal()">Удалить…</button>
   <button type="button" class="link" @click="$store.sel.clear()">Снять выбор</button>
+
+  <dialog class="confirm gemini-dialog" x-ref="gem" aria-labelledby="bulk-gemini-title">
+    <h2 id="bulk-gemini-title">В Gemini: <span x-text="$store.sel.ids.length"></span> фото</h2>
+    <p>Уйдут только фото на проверке — по запросу на каждое, с одним промптом.
+      {% set g = hdr.gemini %}{% if g.estimate %}Около {{ g.estimate.usd | usd }} за фото ({{ g.estimate.basis }}).{% endif %}
+      За {{ g.month }}: {{ g.spent | usd }} из {{ g.limit | usd }}.</p>
+    {% if addons %}
+    <div class="chips">
+      {% for a in addons %}
+      <label class="chip-check" title="{{ a.text }}"><input type="checkbox" name="addons" value="{{ a.id }}"> {{ a.name }}</label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <textarea name="text" rows="3" maxlength="4000" placeholder="Что исправить (по-английски); пусто — базовый промпт"></textarea>
+    <fieldset class="src">
+      <legend>Источник</legend>
+      <label><input type="radio" name="source" value="latest" checked> последний вариант фото</label>
+      <label><input type="radio" name="source" value="prepared"> подготовленное фото</label>
+    </fieldset>
+    <label class="check"><input type="checkbox" name="reference" value="true" checked> приложить подготовленный скан как образец</label>
+    <div class="dialog-actions">
+      <button type="button" @click="$refs.gem.close()">Отмена</button>
+      <button name="action" value="gemini" class="primary">Отправить</button>
+    </div>
+  </dialog>
 
   <dialog class="confirm" x-ref="del" aria-labelledby="bulk-delete-title">
     <h2 id="bulk-delete-title">Удалить выбранные фото: <span x-text="$store.sel.ids.length"></span>?</h2>

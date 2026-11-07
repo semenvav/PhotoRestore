@@ -1,31 +1,37 @@
-"""Экран проверки (ТЗ §5.4): лента вариантов, сравнение, доработка, «Скрыть», «Принять»."""
+"""Экран проверки (ТЗ §5.4): лента вариантов, сравнение, доработка локально и в Gemini,
+ручная правка, «Скрыть», «Принять»."""
 
 from itertools import groupby
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
+from PIL import Image, ImageOps
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import final, jobs, presets, states
+from app import final, gemini, imaging, jobs, presets, results, states
 from app.api.ui import (
     _CACHE,
     SessionDep,
     StoreDep,
     _file,
+    display_tz,
+    gemini_worker,
     header_ctx,
     load_photo,
     render,
     with_msg,
 )
-from app.models import Actor, Event, Photo, Preset, PresetKind, Status, Variant, VariantSource
+from app.models import Actor, Event, Photo, Status, Variant, VariantSource
 from app.states import TransitionError
-from app.storage import Store
+from app.storage import ALLOWED_EXT, Store
 
 router = APIRouter()
 
-MAX_VARIANTS = 6
+MAX_VARIANTS = presets.MAX_VARIANTS
+# ручная правка: форматы, которые открывает Pillow (как у «Входящих»)
+MANUAL_FORMATS = frozenset({"JPEG", "PNG", "WEBP", "TIFF", "AVIF", "MPO"})
 SOURCE_LABELS = {
     VariantSource.LOCAL_EDIT: "Локально",
     VariantSource.GEMINI: "Gemini",
@@ -61,6 +67,14 @@ def variant_tooltip(v: Variant) -> str:
         parts.append(f"seed {p['seed']}")
     if p.get("steps"):
         parts.append(f"{p['steps']} шагов")
+    if v.source == VariantSource.GEMINI:
+        parts.extend(str(p[k]) for k in ("model", "image_size", "aspect_ratio") if p.get(k))
+        if p.get("reference"):
+            parts.append("с образцом")
+        if crop := p.get("cropped"):
+            parts.append(f"обрезано {crop['cut']:.0%} под пропорции")
+    if v.source == VariantSource.MANUAL and p.get("file"):
+        parts.append(f"файл {p['file']}")
     if v.source == VariantSource.UPSCALE:
         if p.get("scale"):
             parts.append(f"×{p['scale']:g}")
@@ -70,7 +84,7 @@ def variant_tooltip(v: Variant) -> str:
         parts.append(f"{p['workflow']} v{p.get('workflow_version', '?')}")
     if v.duration_s:
         parts.append(f"{v.duration_s:.0f} с")
-    if v.cost_usd:
+    if v.cost_usd is not None and v.source == VariantSource.GEMINI:
         parts.append(f"${v.cost_usd:.3f}")
     text = " · ".join(parts)
     return f"{text}\n\n{v.prompt}" if v.prompt else text
@@ -135,14 +149,13 @@ def review_page(
     rounds = [(r, list(group)) for r, group in groupby(shown, key=lambda x: x.round)]
     selected = next((x for x in shown if x.id == v), shown[0] if shown else None)
     prev_id, next_id = neighbours(session, photo.id)
-    addons = session.scalars(
-        select(Preset).where(Preset.kind == PresetKind.ADDON).order_by(Preset.sort, Preset.id)
-    ).all()
+    budget = gemini.budget(session, display_tz(request))
+    worker = gemini_worker(request)
     events = session.scalars(
         select(Event).where(Event.photo_id == photo.id).order_by(Event.id.desc())
     ).all()
     ctx = {
-        "hdr": header_ctx(session),
+        "hdr": header_ctx(request, session),
         "photo": photo,
         "rounds": rounds,
         "numbers": {x.id: i + 1 for i, x in enumerate(shown)},
@@ -154,10 +167,15 @@ def review_page(
         "can_refine": photo.status == Status.REVIEW,
         "accepted_id": photo.accepted_variant_id,
         "has_prepared": store.prepared(photo.id).exists(),
-        "addons": addons,
+        "addons": presets.addons(session),
         "base_prompt": presets.base_prompt(session),
-        "default_variants": int(presets.get_setting(session, "edit")["variants"]),
+        "default_variants": presets.edit_prefs(session).variants,
         "max_variants": MAX_VARIANTS,
+        "manual_accept": ",".join(f".{ext}" for ext in sorted(ALLOWED_EXT)),
+        "gemini": presets.gemini_prefs(session),
+        "budget": budget,
+        "gemini_block": None if worker.available else "Gemini не настроен: нет GEMINI_API_KEY.",
+        "budget_block": budget.check(1),
         "events": events,
         "prev_id": prev_id,
         "next_id": next_id,
@@ -172,11 +190,6 @@ def review_page(
         },
     }
     return render(request, "review.html", ctx)
-
-
-def compose_prompt(base: str, addons: list[str], text: str) -> str:
-    parts = [base.strip(), *(a.strip() for a in addons), text.strip()]
-    return "\n".join(p for p in parts if p)
 
 
 @router.post("/review/{photo_id}/refine")
@@ -196,14 +209,9 @@ def review_refine(
         if variant_id is None:
             raise HTTPException(400, "не выбран вариант-источник")
         source_variant = load_variant(session, photo.id, variant_id)
-    addon_texts = (
-        session.scalars(
-            select(Preset.text).where(Preset.id.in_(addons), Preset.kind == PresetKind.ADDON)
-        ).all()
-        if addons
-        else []
+    prompt = presets.compose_prompt(
+        presets.base_prompt(session), *presets.addon_texts(session, addons), text
     )
-    prompt = compose_prompt(presets.base_prompt(session), list(addon_texts), text)
     try:
         states.transition(
             session,
@@ -214,6 +222,7 @@ def review_refine(
         )
     except TransitionError as e:
         return RedirectResponse(with_msg(f"/review/{photo.id}", str(e)), status_code=303)
+    jobs.clear_attention(photo)
     jobs.create_edit_job(
         session,
         photo,
@@ -228,6 +237,103 @@ def review_refine(
     return RedirectResponse(
         with_msg(f"/review/{next_id}" if next_id else "/", msg), status_code=303
     )
+
+
+@router.post("/review/{photo_id}/gemini")
+def review_gemini(
+    request: Request,
+    session: SessionDep,
+    photo_id: int,
+    addons: Annotated[list[int] | None, Form()] = None,
+    text: Annotated[str, Form(max_length=4000)] = "",
+    source: Annotated[str, Form()] = "prepared",
+    variant_id: Annotated[int | None, Form()] = None,
+    reference: Annotated[bool, Form()] = False,
+) -> Response:
+    """«В Gemini»: отправляется сразу (без запуска), если хватает бюджета."""
+    photo = load_photo(session, photo_id)
+    here = f"/review/{photo.id}" + (f"?v={variant_id}" if variant_id else "")
+    worker = gemini_worker(request)
+    if not worker.available:
+        return RedirectResponse(with_msg(here, "Gemini не настроен: нет GEMINI_API_KEY"), 303)
+    source_variant = None
+    if source == "variant":
+        if variant_id is None:
+            raise HTTPException(400, "не выбран вариант-источник")
+        source_variant = load_variant(session, photo.id, variant_id)
+    budget = gemini.budget(session, display_tz(request))
+    if (reason := budget.check(1)) is not None:
+        return RedirectResponse(with_msg(here, reason), status_code=303)
+    user_prompt = presets.compose_prompt(*presets.addon_texts(session, addons), text)
+    try:
+        job = gemini.send(session, photo, user_prompt, source_variant, reference)
+    except TransitionError as e:
+        session.rollback()
+        return RedirectResponse(with_msg(here, str(e)), status_code=303)
+    session.commit()
+    worker.wake()
+    assert budget.estimate is not None
+    cost = gemini.usd(budget.estimate.usd)
+    msg = f"{photo.code}: отправлено в Gemini (задача #{job.id}, ≈{cost})"
+    _, next_id = neighbours(session, photo.id)
+    return RedirectResponse(
+        with_msg(f"/review/{next_id}" if next_id else "/", msg), status_code=303
+    )
+
+
+def read_upload(upload: UploadFile) -> Image.Image:
+    """Картинка ручной правки: ориентированная, RGB 8 бит."""
+    try:
+        with Image.open(upload.file) as im:
+            if im.format not in MANUAL_FORMATS:
+                raise imaging.UnsupportedImage(f"формат {im.format} не поддерживается")
+            im.load()
+            return imaging.to_rgb8(ImageOps.exif_transpose(im))
+    except (OSError, ValueError, Image.DecompressionBombError) as e:
+        raise imaging.UnsupportedImage(str(e) or type(e).__name__) from e
+
+
+@router.post("/review/{photo_id}/manual")
+def review_manual(
+    session: SessionDep,
+    store: StoreDep,
+    photo_id: int,
+    file: Annotated[UploadFile, File()],
+    variant_id: Annotated[int | None, Form()] = None,
+) -> Response:
+    """«Загрузить правку»: файл из редактора — новый вариант `manual` от выбранного."""
+    photo = load_photo(session, photo_id)
+    parent = load_variant(session, photo.id, variant_id) if variant_id else None
+    here = f"/review/{photo.id}" + (f"?v={parent.id}" if parent else "")
+    if not states.can_transition(photo.status, Status.REVIEW, Actor.OWNER):
+        return RedirectResponse(with_msg(here, f"{photo.code}: фото не на проверке"), 303)
+    try:
+        img = read_upload(file)
+    except imaging.UnsupportedImage as e:
+        return RedirectResponse(with_msg(here, f"Файл не принят: {e}"), status_code=303)
+    variant = results.add_variant(
+        session,
+        store,
+        photo,
+        lambda tmp: imaging.save_png(img, tmp),
+        image=img,
+        parent_id=parent.id if parent else None,
+        source=VariantSource.MANUAL,
+        round=photo.round,
+        params={"file": file.filename or ""},
+    )
+    session.flush()
+    states.transition(
+        session,
+        photo,
+        Status.REVIEW,
+        Actor.OWNER,
+        {"manual": variant.label, "parent": parent.label if parent else "prepared"},
+    )
+    jobs.clear_attention(photo)
+    session.commit()
+    msg = f"{photo.code}: правка загружена как {variant.label}"
+    return RedirectResponse(with_msg(f"/review/{photo.id}?v={variant.id}", msg), 303)
 
 
 @router.post("/review/{photo_id}/accept")

@@ -12,8 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from sqlalchemy.orm import Session, sessionmaker
 
-from app import jobs, presets, runs
-from app.api import agent, final, pc, review, ui
+from app import gemini, jobs, presets, runs
+from app.api import agent, final, pc, review, settings_page, ui
 from app.config import Settings, get_settings
 from app.db import make_engine, make_session_factory, migrate, session_scope
 from app.intake import Intake
@@ -69,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     factory = make_session_factory(engine)
     store = Store(settings.store_dir)
     intake = Intake(settings, factory, store)
+    worker = gemini.GeminiWorker(factory, store, settings, gemini.make_backend(settings))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -84,8 +85,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tasks.append(
                 asyncio.create_task(intake_loop(intake, settings.intake_poll_s, app.state.wake))
             )
+        tasks.append(asyncio.create_task(worker.run()))
         if settings.agent_token is None:
             log.warning("AGENT_TOKEN не задан: API агента отвечает 503")
+        if not worker.available:
+            log.warning("GEMINI_API_KEY не задан: отправка в Gemini недоступна")
+        elif worker.fake:
+            log.warning("FAKE_GEMINI: вместо Gemini — вход с пометкой, цена 0")
         log.info(
             "photo-restore %s запущен: data=%s db=%s",
             settings.app_version,
@@ -99,6 +105,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+            await worker.stop()  # запросы Gemini в полёте: задачи вернёт recover() при старте
             engine.dispose()
 
     app = FastAPI(title="photo-restore", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -107,12 +114,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.store = store
     app.state.intake = intake
     app.state.registry = registry
+    app.state.gemini = worker
     app.state.templates = make_templates(settings.display_tz, settings.app_version)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     # pc и review раньше ui: у ui есть общий POST /photo/{id}/{action}
     app.include_router(pc.router)
     app.include_router(review.router)
     app.include_router(final.router)
+    app.include_router(settings_page.router)
     app.include_router(ui.router)
     app.include_router(agent.router)
     return app

@@ -53,9 +53,9 @@ def create_edit_job(
 ) -> Job:
     """Задача `edit_local`: N вариантов со случайными seed. Ничего не запускает —
     агент возьмёт её только в рамках активного `run`."""
-    edit = presets.get_setting(session, "edit")
+    edit = presets.edit_prefs(session)
     if variants is None:
-        variants = int(edit["variants"])
+        variants = edit.variants
     job = Job(
         photo_id=photo.id,
         type=JobType.EDIT_LOCAL,
@@ -66,7 +66,7 @@ def create_edit_job(
             "source": "variant" if source_variant_id else "prepared",
             "source_variant_id": source_variant_id,
             "round": photo.round,
-            "params": {"steps": edit["steps"], "megapixels": edit["megapixels"]},
+            "params": {"steps": edit.steps, "megapixels": edit.megapixels},
         },
     )
     session.add(job)
@@ -92,11 +92,9 @@ def create_upscale_job(
 ) -> Job:
     """Задача `upscale_local` для варианта; без явных модели и масштаба — из настроек
     «upscale» (масштаб — `auto_scale` по размеру варианта)."""
-    up = presets.get_setting(session, "upscale")
+    up = presets.upscale_prefs(session)
     if scale is None:
-        scale = auto_scale(
-            variant.width, variant.height, float(up["target_mp"]), float(up["max_scale"])
-        )
+        scale = auto_scale(variant.width, variant.height, up.target_mp, up.max_scale)
     job = Job(
         photo_id=photo.id,
         type=JobType.UPSCALE_LOCAL,
@@ -106,7 +104,7 @@ def create_upscale_job(
             "source": "variant",
             "source_variant_id": variant.id,
             "round": photo.round,
-            "params": {"model": model or up["model"], "scale": scale},
+            "params": {"model": model or up.model, "scale": scale},
         },
     )
     session.add(job)
@@ -160,6 +158,15 @@ def _flag(photo: Photo, reason: str) -> None:
     photo.updated_at = utcnow()
 
 
+def clear_attention(photo: Photo) -> None:
+    """Владелец сделал следующий шаг (доработка, Gemini, правка, «Принять») — отметка об
+    ошибке прошлой задачи больше не нужна."""
+    if photo.attention:
+        photo.attention = False
+        photo.attention_reason = None
+        photo.updated_at = utcnow()
+
+
 def fail(session: Session, job: Job, error: str, retryable: bool) -> None:
     """Неудача выполняемой задачи (ошибка агента или истёкшая аренда).
 
@@ -186,7 +193,9 @@ def expire_leases(session: Session, now: datetime | None = None) -> list[int]:
     """Взятые задачи с истёкшей арендой — обратно в очередь (агент пропал)."""
     now = now or utcnow()
     expired = session.scalars(
-        select(Job).where(Job.status == JobStatus.CLAIMED, Job.lease_until < now)
+        select(Job).where(
+            Job.status == JobStatus.CLAIMED, Job.lease_until < now, Job.type.in_(LOCAL_TYPES)
+        )
     ).all()
     for job in expired:
         fail(session, job, "агент не отвечал дольше срока аренды", retryable=True)
@@ -199,19 +208,25 @@ class JobError(Exception):
 
 def cancel(session: Session, job: Job, actor: Actor = Actor.OWNER) -> None:
     """«Отменить» задачу. Взятую агент прервёт при следующем `progress` (`cancel: true`).
-    Фото остаётся ждать в очереди с флагом: «Повторить» или «Отложить»."""
+    Фото остаётся ждать в очереди с флагом: «Повторить» или «Отложить».
+
+    Задача Gemini: фото сразу возвращается на проверку с флагом; ответ запроса, который уже
+    идёт, воркер выбросит (его цена всё равно учитывается в бюджете)."""
     if job.status not in ACTIVE:
         raise JobError(f"Задача #{job.id} уже не выполняется")
     was_running = job.status == JobStatus.CLAIMED
     job.status = JobStatus.CANCELLED
     job.finished_at = utcnow()
     _release(job)
-    if was_running:
-        photo = _back_to_queue(session, job, Actor.SYSTEM, {"cancelled": True})
-    else:
-        queued = session.get(Photo, job.photo_id)
-        assert queued is not None
-        photo = queued
+    photo = session.get(Photo, job.photo_id)
+    assert photo is not None
+    if job.type == JobType.EDIT_GEMINI:
+        if photo.status == Status.GEMINI:
+            states.transition(
+                session, photo, Status.REVIEW, Actor.SYSTEM, {"job_id": job.id, "cancelled": True}
+            )
+    elif was_running:
+        _back_to_queue(session, job, Actor.SYSTEM, {"cancelled": True})
     log_event(session, photo.id, actor, "jobs_cancelled", {"job_ids": [job.id]})
     _flag(photo, f"Задача #{job.id} отменена")
 
@@ -264,9 +279,7 @@ def retry(session: Session, photo: Photo, actor: Actor = Actor.OWNER) -> Job:
     )
     session.add(job)
     session.flush()
-    photo.attention = False
-    photo.attention_reason = None
-    photo.updated_at = utcnow()
+    clear_attention(photo)
     log_event(
         session,
         photo.id,

@@ -10,6 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import quote, urlencode
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -19,7 +20,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import deletion, delivery, final, jobs, prep, runs, states
+from app import deletion, delivery, final, gemini, jobs, prep, presets, runs, states
 from app.api.agent import agent_compatible
 from app.config import Settings
 from app.db import session_scope, utcnow
@@ -89,10 +90,22 @@ def status_count(session: Session, status: Status) -> int:
     return session.scalar(select(func.count()).where(Photo.status == status)) or 0
 
 
-def header_ctx(session: Session) -> dict[str, Any]:
+def display_tz(request: Request) -> ZoneInfo:
+    settings: Settings = request.app.state.settings
+    return ZoneInfo(settings.display_tz)
+
+
+def gemini_worker(request: Request) -> gemini.GeminiWorker:
+    worker: gemini.GeminiWorker = request.app.state.gemini
+    return worker
+
+
+def header_ctx(request: Request, session: Session) -> dict[str, Any]:
     agent = current_agent(session)
     run = runs.active_run(session)
     return {
+        "gemini": gemini.budget(session, display_tz(request)),
+        "gemini_on": gemini_worker(request).available,
         "agent": agent,
         "agent_online": agent_online(agent),
         "agent_outdated": agent is not None and not agent_compatible(agent.version),
@@ -111,7 +124,7 @@ def healthz(request: Request) -> dict[str, Any]:
 
 @router.get("/partials/header")
 def header_partial(request: Request, session: SessionDep) -> Response:
-    return render(request, "_header_status.html", {"hdr": header_ctx(session)})
+    return render(request, "_header_status.html", {"hdr": header_ctx(request, session)})
 
 
 # --- доска ------------------------------------------------------------------------------
@@ -171,10 +184,11 @@ def board(
         .limit(10)
     ).all()
     ctx = board_ctx(session, album, q) | {
-        "hdr": header_ctx(session),
+        "hdr": header_ctx(request, session),
         "albums": albums,
         "notices": notices,
         "accept": ",".join(f".{ext}" for ext in sorted(ALLOWED_EXT)),
+        "addons": presets.addons(session),
         "msg": msg,
     }
     return render(request, "board.html", ctx)
@@ -208,7 +222,7 @@ def photo_card(
         select(Job).where(Job.photo_id == photo.id).order_by(Job.id.desc())
     ).all()
     ctx = {
-        "hdr": header_ctx(session),
+        "hdr": header_ctx(request, session),
         "photo": photo,
         "events": events,
         "jobs": photo_jobs,
@@ -287,7 +301,15 @@ def bulk_action(
     action: Annotated[str, Form()],
     ids: Annotated[list[int], Form()],
     back: Annotated[str, Form()] = "/",
+    addons: Annotated[list[int] | None, Form()] = None,
+    text: Annotated[str, Form(max_length=4000)] = "",
+    source: Annotated[str, Form()] = "prepared",
+    reference: Annotated[bool, Form()] = False,
 ) -> Response:
+    if action == "gemini":
+        user_prompt = presets.compose_prompt(*presets.addon_texts(session, addons), text)
+        msg = bulk_gemini(request, session, ids, user_prompt, source == "latest", reference)
+        return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
     if action == "delete":
         result = deletion.delete_photos(session, request.app.state.store, ids)
         return RedirectResponse(with_msg(safe_back(back), delete_msg(result)), status_code=303)
@@ -333,6 +355,49 @@ def bulk_action(
     return RedirectResponse(with_msg(safe_back(back), msg), status_code=303)
 
 
+def latest_variant(session: Session, photo_id: int) -> Variant | None:
+    """Последний видимый вариант фото (источник массовой отправки в Gemini)."""
+    return session.scalar(
+        select(Variant)
+        .where(Variant.photo_id == photo_id, Variant.hidden.is_(False))
+        .order_by(Variant.id.desc())
+        .limit(1)
+    )
+
+
+def bulk_gemini(
+    request: Request,
+    session: Session,
+    ids: list[int],
+    user_prompt: str,
+    from_latest: bool,
+    reference: bool,
+) -> str:
+    """«В Gemini» для выбранных: по задаче на фото на проверке, один промпт; бюджет
+    проверяется сразу на все."""
+    worker = gemini_worker(request)
+    if not worker.available:
+        return "Gemini не настроен: нет GEMINI_API_KEY"
+    photos = [p for photo_id in ids if (p := session.get(Photo, photo_id)) is not None]
+    ready = [p for p in photos if p.status == Status.REVIEW]
+    skipped = [p.code for p in photos if p.status != Status.REVIEW]
+    if not ready:
+        return "Среди выбранных нет фото на проверке — в Gemini отправлять нечего"
+    budget = gemini.budget(session, display_tz(request))
+    if (reason := budget.check(len(ready))) is not None:
+        return reason
+    for photo in ready:
+        source = latest_variant(session, photo.id) if from_latest else None
+        gemini.send(session, photo, user_prompt, source, reference)
+    session.commit()
+    worker.wake()
+    assert budget.estimate is not None
+    msg = f"В Gemini: {len(ready)} (≈{gemini.usd(len(ready) * budget.estimate.usd)})"
+    if skipped:
+        msg += f"; не на проверке: {', '.join(skipped)}"
+    return msg
+
+
 def bulk_approve(request: Request, session: Session, ids: list[int], back: str) -> Response:
     """«Утвердить финал» у выбранных: каждое фото — своя транзакция и свой файл."""
     settings: Settings = request.app.state.settings
@@ -364,7 +429,7 @@ def prep_queue(request: Request, session: SessionDep) -> Response:
     nxt = prep.next_in_queue(session)
     if nxt is not None:
         return RedirectResponse(f"/prep/{nxt.id}", status_code=303)
-    return render(request, "prep_empty.html", {"hdr": header_ctx(session)})
+    return render(request, "prep_empty.html", {"hdr": header_ctx(request, session)})
 
 
 @router.get("/prep/{photo_id}/skip")
@@ -400,7 +465,7 @@ def prep_editor(request: Request, session: SessionDep, store: StoreDep, photo_id
         )
         position = (before or 0) + 1
     ctx = {
-        "hdr": header_ctx(session),
+        "hdr": header_ctx(request, session),
         "photo": photo,
         "editable": photo.status in prep.PREPARABLE,
         "in_queue": in_queue,

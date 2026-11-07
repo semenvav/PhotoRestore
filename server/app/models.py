@@ -178,6 +178,8 @@ class Job(Base):
     lease_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
     progress: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
+    # Gemini: стоимость запроса по usage_metadata, в т.ч. отказов и отменённых — для бюджета
+    cost_usd: Mapped[float | None]
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

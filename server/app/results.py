@@ -10,6 +10,8 @@ import json
 import os
 import shutil
 import uuid
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +74,38 @@ def save_output(store: Store, job: Job, index: int, data: bytes, meta: dict[str,
         os.replace(tmp, path)
 
 
+def add_variant(
+    session: Session,
+    store: Store,
+    photo: Photo,
+    write: Callable[[Path], None],
+    image: Image.Image | None = None,
+    **fields: Any,
+) -> Variant:
+    """Новый вариант: `write(tmp)` пишет PNG, файл становится `variants/vNNN.png` (только
+    чтение), рядом — превью и миниатюра. `image` — уже открытая картинка этого файла."""
+    number = store.next_variant_number(photo.id)
+    dest = store.variant_file(photo.id, number)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{uuid.uuid4().hex}.tmp")
+    write(tmp)
+    os.replace(tmp, dest)
+    os.chmod(dest, 0o444)  # варианты неизменяемы
+
+    img = image if image is not None else imaging.load_oriented(dest)
+    imaging.save_preview(img, store.preview(photo.id, variant_label(number)))
+    imaging.save_thumb(img, store.variant_thumb(photo.id, number))
+    variant = Variant(
+        photo_id=photo.id,
+        path=dest.relative_to(store.photo_dir(photo.id)).as_posix(),
+        width=img.width,
+        height=img.height,
+        **fields,
+    )
+    session.add(variant)
+    return variant
+
+
 def complete(session: Session, store: Store, registry: Registry, job: Job) -> list[Variant]:
     """Создаёт варианты из выходов и двигает статус фото. Вызывающий фиксирует транзакцию
     и затем убирает `jobs/<id>/` (`cleanup`): до commit выходы остаются на месте, и
@@ -93,20 +127,11 @@ def complete(session: Session, store: Store, registry: Registry, job: Job) -> li
     variants = []
     for i, src in enumerate(outputs):
         meta = json.loads(_meta_path(src).read_text(encoding="utf-8"))
-        number = store.next_variant_number(photo.id)
-        dest = store.variant_file(photo.id, number)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(f".{uuid.uuid4().hex}.tmp")
-        shutil.copyfile(src, tmp)
-        os.replace(tmp, dest)
-        os.chmod(dest, 0o444)  # варианты неизменяемы
-
-        img = imaging.load_oriented(dest)
-        imaging.save_preview(img, store.preview(photo.id, variant_label(number)))
-        imaging.save_thumb(img, store.variant_thumb(photo.id, number))
-
-        variant = Variant(
-            photo_id=photo.id,
+        variant = add_variant(
+            session,
+            store,
+            photo,
+            partial(shutil.copyfile, src),
             parent_id=payload.get("source_variant_id"),
             source=SOURCES[job.type],
             job_id=job.id,
@@ -117,12 +142,8 @@ def complete(session: Session, store: Store, registry: Registry, job: Job) -> li
                 **(workflow or {}),
                 **(payload.get("params") or {}),
             },
-            path=dest.relative_to(store.photo_dir(photo.id)).as_posix(),
-            width=img.width,
-            height=img.height,
             duration_s=meta.get("duration_s"),
         )
-        session.add(variant)
         variants.append(variant)
     session.flush()
 

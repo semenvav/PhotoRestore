@@ -6,6 +6,7 @@
 
 import io
 import json
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -13,6 +14,7 @@ from urllib.parse import unquote
 import httpx
 import numpy as np
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from imgutil import encode, gradient, write
 from PIL import Image
@@ -20,6 +22,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app import gemini
 from app.config import Settings
 from app.intake import Intake
 from app.models import Job, JobStatus, Photo, Run, RunState, Status, Variant
@@ -446,3 +449,46 @@ def test_ten_selected_photos_run_with_one_button(
     with factory() as s:
         run = s.scalars(select(Run).order_by(Run.id.desc())).first()
         assert run is not None and run.state == RunState.COMPLETED and len(run.job_ids or []) == 10
+
+
+def test_full_pipeline_with_gemini(
+    app: FastAPI,
+    client: TestClient,
+    intake: Intake,
+    inbox: Path,
+    factory: sessionmaker[Session],
+    settings: Settings,
+    agent: tuple[Agent, FakeComfy],
+) -> None:
+    """ТЗ §10 с FAKE_COMFY + FAKE_GEMINI: 3 варианта → вариант в Gemini (без запуска) →
+    принять его → апскейл → утвердить → «Готово»."""
+    app.state.gemini.backend = gemini.FakeBackend()
+    app.state.gemini.poll_s = 0.05
+    ag, _ = agent
+    pid = prepared_photo(client, intake, inbox, "Gemini.png", 4)
+    client.post("/runs/start")
+    ag.heartbeat()
+    assert ag.step() == 0
+    src = variants(factory, pid)[0]
+
+    client.post(
+        f"/review/{pid}/gemini",
+        data={"source": "variant", "variant_id": src.id, "reference": "true"},
+    )
+    deadline = time.monotonic() + 10
+    while status(factory, pid) != Status.REVIEW:
+        assert time.monotonic() < deadline, "Gemini не ответил"
+        time.sleep(0.02)
+    gem = variants(factory, pid)[-1]
+    assert gem.source == "gemini" and gem.cost_usd == 0 and gem.parent_id == src.id
+    assert len(app.state.gemini.backend.requests[0].images) == 2
+
+    client.post(f"/review/{pid}/accept", data={"variant_id": gem.id})
+    client.post("/runs/start")
+    ag.heartbeat()
+    assert ag.step() == 0
+    up = variants(factory, pid)[-1]
+    assert up.source == "upscale" and up.parent_id == gem.id
+    client.post(f"/final/{pid}/approve")
+    assert status(factory, pid) == Status.DELIVERED
+    assert (settings.delivered_dir / "Gemini_restored.png").is_file()

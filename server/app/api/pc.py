@@ -75,7 +75,7 @@ def pc_ctx(session: Session, registry: Registry) -> dict[str, Any]:
 @router.get("/pc")
 def pc_page(request: Request, session: SessionDep, msg: str | None = None) -> Response:
     ctx = pc_ctx(session, request.app.state.registry)
-    return render(request, "pc.html", {**ctx, "hdr": header_ctx(session), "msg": msg})
+    return render(request, "pc.html", {**ctx, "hdr": header_ctx(request, session), "msg": msg})
 
 
 @router.get("/partials/pc")

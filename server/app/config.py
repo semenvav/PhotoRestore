@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     sweep_interval_s: float = 60.0  # как часто возвращать просроченные задачи в очередь
     workflows_dir: Path = DEFAULT_WORKFLOWS_DIR
 
+    # Gemini (ТЗ §8): без ключа отправка недоступна; FAKE_GEMINI — вход с пометкой, цена 0
+    gemini_api_key: SecretStr | None = None
+    fake_gemini: bool = False
+    gemini_timeout_s: float = 300.0
+    gemini_retry_base_s: float = 2.0  # паузы перед повторами 429/5xx: 2, 4, 8 с
+
     @property
     def inbox_dir(self) -> Path:
         return self.data_dir / "inbox"

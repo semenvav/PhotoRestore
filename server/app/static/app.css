@@ -322,6 +322,8 @@ body.busy { cursor: progress; }
   .timeline li { grid-template-columns: 1fr; gap: 0; }
   .bulk { top: 0; }
   .hdr-status { margin-left: 0; }
+  .nav { flex-wrap: wrap; }
+  .nav a { padding: 4px 8px; white-space: nowrap; }
 }
 
 /* --- диалог подтверждения --- */
@@ -437,4 +439,43 @@ a.chip { text-decoration: none; color: inherit; }
   .pc-grid, .review { grid-template-columns: 1fr; }
   .vstage.compare, .grid4 { height: 60vh; }
   .review-nav { margin-left: 0; }
+}
+
+/* --- проверка: Gemini и ручная правка --- */
+.gemini-form { margin-top: 12px; }
+.refine .check, .gemini-dialog .check { display: flex; gap: 6px; align-items: center; font-size: 0.9rem; }
+.refine .error { margin: 0; }
+.gemini-form button:disabled, button.blocked:disabled { cursor: not-allowed; }
+.file-btn input[type="file"] { display: none; }
+.gemini-dialog { max-width: 560px; }
+.gemini-dialog textarea { width: 100%; font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); resize: vertical; }
+.gemini-dialog .chips, .gemini-dialog textarea, .gemini-dialog .src { margin-bottom: 10px; }
+.gemini-dialog .src { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; display: grid; gap: 4px; }
+.gemini-dialog .src legend { font-size: 0.8rem; color: var(--muted); padding: 0 4px; }
+
+/* --- настройки --- */
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; margin-top: 12px; }
+.fields { display: grid; gap: 8px; justify-items: start; }
+.fields .hint { margin: 0; }
+.field { display: grid; grid-template-columns: 9em minmax(0, 15em); gap: 8px; align-items: center; width: 100%; }
+.field input, .field select, .prices input, .addon input[name="name"] { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.field input, .field select { width: 100%; }
+.gemini-state { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 10px; }
+.chip.ok-chip { border-color: var(--ok); color: var(--ok); }
+.table-scroll { overflow-x: auto; }
+.prices { border-collapse: collapse; width: 100%; margin-bottom: 8px; }
+.prices th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.85rem; padding: 2px 6px; }
+.prices td { padding: 3px 6px; vertical-align: middle; white-space: nowrap; }
+.prices input[type="number"] { width: 6.5em; }
+.prices .new-row input:not([type="number"]) { width: 12em; }
+.preset-base, .addon { display: grid; gap: 6px; }
+.preset-base textarea, .addon textarea, .addon input[name="name"] { width: 100%; font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); resize: vertical; }
+.addons { display: grid; gap: 12px; margin-top: 8px; }
+.addon { padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); }
+.addon.new-addon { border-style: dashed; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+h3 { font-size: 0.95rem; margin: 1.2rem 0 0.3rem; font-weight: 600; }
+@media (max-width: 860px) {
+  .settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .field { grid-template-columns: 8em minmax(0, 1fr); }
 }

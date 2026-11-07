@@ -25,6 +25,7 @@
         Финал{% if hdr.final_count %} <span class="count">{{ hdr.final_count }}</span>{% endif %}
       </a>
       <a href="/pc" {% if request.url.path == "/pc" %}aria-current="page"{% endif %}>ПК</a>
+      <a href="/settings" {% if request.url.path == "/settings" %}aria-current="page"{% endif %}>Настройки</a>
     </nav>
     <div class="hdr-status" hx-get="/partials/header" hx-trigger="every 5s" hx-swap="innerHTML">
       {% include "_header_status.html" %}

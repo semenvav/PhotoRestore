@@ -119,6 +119,31 @@ jobs:
             type=match,pattern=^v(\d+(\.\d+)+)$,group=1
             type=sha
 
+      # Образ должен подняться сам по себе: тесты идут во всём workspace, а в образе — только
+      # зависимости сервера (так однажды потерялся httpx). Публикуется только поднявшийся.
+      - name: Build for the smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: photo-restore:smoke
+          cache-from: type=gha
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 8000:8000 \
+            --tmpfs /data:uid=1000,gid=1000 --tmpfs /db:uid=1000,gid=1000 \
+            -e AGENT_TOKEN=smoke photo-restore:smoke
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/healthz; then exit 0; fi
+            sleep 1
+          done
+          docker logs smoke
+          exit 1
+
       - uses: docker/build-push-action@v7
         with:
           context: .

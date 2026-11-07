@@ -12,3 +12,8 @@
 {% else %}
 <span class="chip muted">Запуска нет</span>
 {% endif %}
+{% set g = hdr.gemini %}
+{% if hdr.gemini_on or g.spent %}
+<a class="chip {{ 'bad' if g.exhausted else 'muted' }}" href="/settings#gemini"
+   title="Расход Gemini за {{ g.month }} / месячный лимит{% if g.inflight %}; в работе: {{ g.inflight }}{% endif %}">Gemini {{ g.spent | usd }} / {{ g.limit | usd }}</a>
+{% endif %}

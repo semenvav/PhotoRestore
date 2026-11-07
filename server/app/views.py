@@ -34,6 +34,13 @@ JOB_STATUS_LABELS = {
 AGENT_OFFLINE_AFTER = timedelta(seconds=60)
 
 
+def usd(value: float | None) -> str:
+    """Деньги: от 10 центов — до цента, меньше — до десятой цента."""
+    if value is None:
+        return "—"
+    return f"${value:.2f}" if value >= 0.1 or value == 0 else f"${value:.3f}"
+
+
 def status_label(value: str | None) -> str:
     return LABELS[Status(value)] if value else "—"
 
@@ -52,8 +59,20 @@ def describe_event(ev: Event) -> str:
                 text += f" · подготовлено {prepared['width']}×{prepared['height']}"
             if d.get("job_id"):
                 text += f" · задача #{d['job_id']}"
+            if g := d.get("gemini"):
+                source = "подготовленного" if g["source"] == "prepared" else g["source"]
+                text += f" · из {source}"
+                if g.get("reference"):
+                    text += " с образцом"
+                text += f" ({g.get('model')}, {g.get('size')})"
             if d.get("variants"):
                 text += f" · варианты {', '.join(d['variants'])}"
+            if d.get("cost") is not None:
+                text += f" · {usd(d['cost'])}"
+            if d.get("manual"):
+                parent = d.get("parent")
+                source = "подготовленного" if parent in (None, "prepared") else parent
+                text += f" · загружена правка {d['manual']} (от {source})"
             if d.get("source") and d.get("to") == "QUEUED_EDIT":
                 text += f" · доработка из {d['source']}"
             if d.get("cancelled"):
@@ -143,6 +162,7 @@ def make_templates(display_tz: str, app_version: str = "dev") -> Jinja2Templates
     env.filters["ago"] = ago
     env.filters["status_label"] = status_label
     env.filters["code"] = photo_code
+    env.filters["usd"] = usd
     env.globals["describe_event"] = describe_event
     env.globals["ACTOR_LABELS"] = ACTOR_LABELS
     env.globals["JOB_TYPE_LABELS"] = JOB_TYPE_LABELS

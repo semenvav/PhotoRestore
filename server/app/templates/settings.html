@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Настройки · Реставрация{% endblock %}
+{% block main %}
+<h1>Настройки</h1>
+<p class="muted">Значения по умолчанию для новых задач; уже созданные задачи не меняются.</p>
+
+<div class="settings-grid">
+  <section class="panel" id="edit">
+    <h2>Чистка на ПК</h2>
+    <form class="fields" method="post" action="/settings/edit">
+      <label class="field"><span>Вариантов</span>
+        <input type="number" name="variants" min="1" max="{{ max_variants }}" step="1" value="{{ edit.variants }}" required></label>
+      <label class="field"><span>Шагов</span>
+        <input type="number" name="steps" min="1" max="50" step="1" value="{{ edit.steps }}" required></label>
+      <label class="field"><span>Размер, Мп</span>
+        <input type="number" name="megapixels" min="0.3" max="4" step="0.1" value="{{ edit.megapixels }}" required></label>
+      <p class="hint">Вариантов — сколько делать после подготовки и в «Доработать локально». Мегапиксели —
+        до скольких масштабируется вход Qwen Edit (больше — дольше и требовательнее к VRAM).</p>
+      <button class="primary">Сохранить</button>
+    </form>
+  </section>
+
+  <section class="panel" id="upscale">
+    <h2>Апскейл</h2>
+    <form class="fields" method="post" action="/settings/upscale"
+          x-data="{ mp: {{ upscale.target_mp }}, max: {{ upscale.max_scale }}, src: {{ edit.megapixels }} }">
+      <label class="field"><span>Модель</span>
+        <select name="model">
+          {% for key, label in upscale_models.items() %}<option value="{{ key }}"{% if key == upscale.model %} selected{% endif %}>SeedVR2 {{ label }}</option>{% endfor %}
+        </select></label>
+      <label class="field"><span>Цель, Мп</span>
+        <input type="number" name="target_mp" min="1" max="40" step="0.5" value="{{ upscale.target_mp }}" x-model.number="mp" required></label>
+      <label class="field"><span>Не больше ×</span>
+        <input type="number" name="max_scale" min="1" max="4" step="0.1" value="{{ upscale.max_scale }}" x-model.number="max" required></label>
+      <p class="hint" x-text="(() => {
+          const s = Math.min(max || 1, Math.max(1, Math.sqrt((mp || 1) / src)));
+          return `Вариант ${src.toLocaleString('ru')} Мп → ×${s.toFixed(2).replace('.', ',')} → ${(src * s * s).toFixed(1).replace('.', ',')} Мп. Больший вход не уменьшается.`;
+        })()">Масштаб — до цели, но не больше предела и не меньше ×1.</p>
+      <button class="primary">Сохранить</button>
+    </form>
+  </section>
+
+  <section class="panel" id="gemini">
+    <h2>Gemini</h2>
+    <p class="gemini-state">
+      {% if gemini_state == "on" %}<span class="chip ok-chip">ключ задан</span>
+      {% elif gemini_state == "fake" %}<span class="chip">FAKE_GEMINI: вход с пометкой, цена 0</span>
+      {% else %}<span class="chip bad">нет GEMINI_API_KEY — отправка недоступна</span>{% endif %}
+      За {{ budget.month }}: <b>{{ budget.spent | usd }}</b> из {{ budget.limit | usd }}{% if budget.inflight %}, в работе {{ budget.inflight }}{% endif %}.
+    </p>
+    <form class="fields" method="post" action="/settings/gemini">
+      <label class="field"><span>Модель</span>
+        <input name="model" list="gemini-models" value="{{ gemini.model }}" required pattern="[a-z0-9][a-z0-9.\-]{1,62}" autocomplete="off"></label>
+      <datalist id="gemini-models">{% for m in known_models %}<option value="{{ m }}">{% endfor %}</datalist>
+      <label class="field"><span>Размер</span>
+        <select name="image_size">
+          {% for s in sizes %}<option value="{{ s }}"{% if s == gemini.image_size %} selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select></label>
+      <label class="field"><span>Бюджет, $/мес</span>
+        <input type="number" name="monthly_budget_usd" min="0" max="10000" step="0.5" value="{{ gemini.monthly_budget_usd }}" required></label>
+      <label class="field"><span>Запросов сразу</span>
+        <select name="max_concurrency">
+          {% for n in (1, 2) %}<option value="{{ n }}"{% if n == gemini.max_concurrency %} selected{% endif %}>{{ n }}</option>{% endfor %}
+        </select></label>
+      <p class="hint">{% if budget.estimate %}Один запрос сейчас ≈{{ budget.estimate.usd | usd }} ({{ budget.estimate.basis }}).{% endif %}
+        Когда расход за месяц доходит до бюджета, отправка блокируется.</p>
+      <button class="primary">Сохранить</button>
+    </form>
+  </section>
+
+  <section class="panel" id="prices">
+    <h2>Цены Gemini</h2>
+    <form method="post" action="/settings/prices">
+      <div class="table-scroll">
+      <table class="prices">
+        <tr><th>Модель</th><th>Вход</th><th title="Текстовый ответ и мышление">Текст</th><th>Картинка</th><th></th></tr>
+        {% for m, p in price_rows %}
+        <tr>
+          <td><input type="hidden" name="model" value="{{ m }}"><code>{{ m }}</code>{% if m == gemini.model %} <span class="chip small">выбрана</span>{% endif %}</td>
+          <td><input type="number" name="input" min="0" max="1000" step="0.01" value="{{ p.input if p else '' }}" required aria-label="Вход, {{ m }}"></td>
+          <td><input type="number" name="output_text" min="0" max="1000" step="0.01" value="{{ p.output_text if p else '' }}" required aria-label="Текст и мышление, {{ m }}"></td>
+          <td><input type="number" name="output_image" min="0" max="1000" step="0.01" value="{{ p.output_image if p else '' }}" required aria-label="Картинка, {{ m }}"></td>
+          <td>{% if m != gemini.model %}<label class="small" title="Удалить строку"><input type="checkbox" name="delete" value="{{ m }}"> удалить</label>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        <tr class="new-row">
+          <td><input name="new_model" list="gemini-models" placeholder="ещё модель" autocomplete="off" pattern="[a-z0-9][a-z0-9.\-]{1,62}"></td>
+          <td><input type="number" name="new_input" min="0" max="1000" step="0.01" aria-label="Вход, новая"></td>
+          <td><input type="number" name="new_output_text" min="0" max="1000" step="0.01" aria-label="Текст, новая"></td>
+          <td><input type="number" name="new_output_image" min="0" max="1000" step="0.01" aria-label="Картинка, новая"></td>
+          <td></td>
+        </tr>
+      </table>
+      </div>
+      {% if gemini.model not in prices %}<p class="error">Для {{ gemini.model }} нет цен — без них отправка заблокирована.</p>{% endif %}
+      <p class="hint">$ за 1 млн токенов, платный уровень Gemini API. Стоимость запроса — токены из ответа
+        (вход, картинка, текст с мышлением) × эти цены; отказы тоже платные.</p>
+      <button class="primary">Сохранить цены</button>
+    </form>
+  </section>
+</div>
+
+<section class="panel" id="presets">
+  <h2>Пресеты промптов</h2>
+  <form class="preset-base" method="post" action="/settings/presets/base">
+    <label for="base-text"><b>Базовый промпт</b> <span class="muted">— начало каждого промпта чистки; в Gemini — если свой текст пуст</span></label>
+    <textarea id="base-text" name="text" rows="6" maxlength="{{ text_max }}" required>{{ base.text if base else default_base }}</textarea>
+    <div class="row-actions">
+      <button class="primary">Сохранить</button>
+      <button name="reset" value="true" formnovalidate
+              onclick="return confirm('Вернуть стандартный базовый промпт?')">Вернуть стандартный</button>
+    </div>
+  </form>
+
+  <h3>Добавки</h3>
+  <p class="hint">Чипы на экране проверки: их тексты добавляются к промпту.</p>
+  <div class="addons">
+    {% for a in addons %}
+    <form class="addon" method="post" action="/settings/presets/{{ a.id }}">
+      <input name="name" value="{{ a.name }}" maxlength="{{ name_max }}" required aria-label="Название">
+      <textarea name="text" rows="2" maxlength="{{ text_max }}" required aria-label="Текст">{{ a.text }}</textarea>
+      <div class="row-actions">
+        <button>Сохранить</button>
+        <button formaction="/settings/presets/{{ a.id }}/up" formnovalidate title="Выше"{% if loop.first %} disabled{% endif %}>↑</button>
+        <button formaction="/settings/presets/{{ a.id }}/down" formnovalidate title="Ниже"{% if loop.last %} disabled{% endif %}>↓</button>
+        <button formaction="/settings/presets/{{ a.id }}/delete" formnovalidate class="danger-outline" data-name="{{ a.name }}"
+                onclick="return confirm('Удалить добавку «' + this.dataset.name + '»?')">Удалить</button>
+      </div>
+    </form>
+    {% endfor %}
+    <form class="addon new-addon" method="post" action="/settings/presets/addons">
+      <input name="name" maxlength="{{ name_max }}" required placeholder="Название чипа" aria-label="Название новой добавки">
+      <textarea name="text" rows="2" maxlength="{{ text_max }}" required placeholder="Текст (по-английски)" aria-label="Текст новой добавки"></textarea>
+      <div class="row-actions"><button class="primary">Добавить</button></div>
+    </form>
+  </div>
+</section>
+{% endblock %}

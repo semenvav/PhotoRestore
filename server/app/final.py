@@ -56,6 +56,7 @@ def accept(session: Session, photo: Photo, variant: Variant, actor: Actor = Acto
     if variant.photo_id != photo.id:
         raise FinalError(f"{variant.label} — вариант другого фото")
     states.transition(session, photo, Status.QUEUED_UPSCALE, actor, {"accepted": variant.label})
+    jobs.clear_attention(photo)
     photo.accepted_variant_id = variant.id
     photo.final_variant_id = None
     return jobs.create_upscale_job(session, photo, variant, actor)
@@ -70,6 +71,7 @@ def accept_without_upscale(
     states.transition(
         session, photo, Status.FINAL_REVIEW, actor, {"accepted": variant.label, "final": "same"}
     )
+    jobs.clear_attention(photo)
     photo.accepted_variant_id = variant.id
     photo.final_variant_id = variant.id
 

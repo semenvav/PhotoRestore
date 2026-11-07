@@ -67,12 +67,12 @@ def final_page(
     selected = selected or (tiles[0] if tiles else None)
     accepted_key = f"v{photo.accepted_variant_id}" if photo.accepted_variant_id else None
     prev_id, next_id = neighbours(session, photo.id, Status.FINAL_REVIEW)
-    up = presets.get_setting(session, "upscale")
+    up = presets.upscale_prefs(session)
     events = session.scalars(
         select(Event).where(Event.photo_id == photo.id).order_by(Event.id.desc())
     ).all()
     ctx: dict[str, Any] = {
-        "hdr": header_ctx(session),
+        "hdr": header_ctx(request, session),
         "photo": photo,
         "tiles": tiles,
         "numbers": {t.id: i + 1 for i, t in enumerate(tiles)},
@@ -81,9 +81,9 @@ def final_page(
         "upscale": VariantSource.UPSCALE,
         "can_act": photo.status == Status.FINAL_REVIEW,
         "models": model_choices(request),
-        "default_model": up["model"],
+        "default_model": up.model,
         "scales": [(str(s), scale_label(s)) for s in jobs.UPSCALE_SCALES],
-        "auto_label": f"авто: до {up['target_mp']:g} Мп, не больше {scale_label(up['max_scale'])}",
+        "auto_label": f"авто: до {up.target_mp:g} Мп, не больше {scale_label(up.max_scale)}",
         "events": events,
         "prev_id": prev_id,
         "next_id": next_id,

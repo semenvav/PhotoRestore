@@ -16,6 +16,8 @@ dependencies = [
     "numpy>=2.0",
     "pyyaml>=6.0",
     "tzdata",
+    "google-genai>=1.50",
+    "httpx>=0.28",
 ]
 
 [build-system]

@@ -14,7 +14,8 @@ uv sync                                   # зависимости (workspace: �
 uv run pytest -q                          # тесты (сервер, протокол, агент с FAKE_COMFY)
 uv run ruff format server agent tests && uv run ruff check server agent tests
 uv run mypy                               # типы (server/app, agent/restore_agent)
-# локальный сервер: скопируйте .env.example в .env (AGENT_TOKEN — для API агента)
+# локальный сервер: скопируйте .env.example в .env (AGENT_TOKEN — для API агента;
+# GEMINI_API_KEY — платный Gemini, FAKE_GEMINI=1 — без него)
 uv run uvicorn --factory app.main:create_app --reload --app-dir server
 # агент: config.toml по образцу agent/config.example.toml; FAKE_COMFY=1 — без GPU
 uv run python -m restore_agent --config agent/config.toml
@@ -35,7 +36,7 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
   ветки по умолчанию в серии получает номер `0.1`, следующие — `0.1.1`, `0.1.2`… Номер ставится
   git-тегом `v…` после публикации образа и передаётся в образ как `APP_VERSION`
   (виден в шапке и в `/healthz`).
-- **Начиная новый этап, первым делом поменять `VERSION`** (M4 → `0.4`).
+- **Начиная новый этап, первым делом поменять `VERSION`** (M5 → `0.5`).
 - Версия агента — `agent/restore_agent/__init__.py`; сервер принимает агентов не старше
   `MIN_AGENT_VERSION` (`server/app/api/agent.py`), иначе `hello` → 426. Несовместимая правка
   протокола = поднять обе.
@@ -129,6 +130,35 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
 - Массовые действия: «Утвердить финал» (каждое фото — своя транзакция), «Поднять приоритет»
   (задачам в очереди — максимум по очереди + 1), «Отменить задачи» (`jobs.cancel` для всех
   активных). `FAKE_COMFY` увеличивает картинку на `resize_type.multiplier` из графа.
+- Gemini (`gemini.py`): google-genai, `generateContent` (API v1), свой `httpx.AsyncClient` в
+  SDK (иначе берёт httpx2; так respx подменяет API в тестах). Модели ноября 2026 — без
+  `-preview`: `gemini-3-pro-image` (по умолчанию), `gemini-3.1-flash-image`,
+  `gemini-nano-banana-2.1`. «В Gemini»: `REVIEW → GEMINI` и задача `edit_gemini` без `run`;
+  воркер в lifespan (`max_concurrency` ≤ 2) возвращает фото `GEMINI → REVIEW` (система): с
+  вариантом `gemini` или с `attention` и текстом отказа (`finish_reason`, `block_reason`,
+  текст ответа). Повторы: 429, 5xx, обрыв — до 3 с паузой `GEMINI_RETRY_BASE_S`·2ⁿ (2, 4, 8 с);
+  остальные ошибки и отказ — сразу. Аренды у задач Gemini нет: взятые до перезапуска
+  `recover()` возвращает в очередь. «Отменить» задачу Gemini — фото сразу на проверку с
+  флагом; ответ уже идущего запроса выбрасывается, цена учитывается.
+- Вход Gemini — JPEG q95, длинная сторона ≤ 3072 (вход стоит фиксированно); с образцом —
+  `prepared`, затем источник, промпт по шаблону ТЗ §8 (пустой текст — базовый пресет); без
+  образца (источник — `prepared`) — базовый пресет + текст. Пропорции: ближайшая из 10 общих
+  для всех моделей, ответ обрезается по центру под вход; > 2% — `params.cropped`. Берётся
+  первая картинка ответа не из мышления (`part.thought`).
+- Стоимость = `usage_metadata` × цены из настройки `gemini_prices` ($/1 млн токенов: вход;
+  текст и мышление; картинка; без разбивки по модальностям весь выход с картинкой — по цене
+  картинки) → `job.cost_usd` (отказы и отменённые тоже) и `variant.cost_usd`. Бюджет месяца =
+  сумма `job.cost_usd` задач Gemini, созданных с 1-го числа в `DISPLAY_TZ`. Отправка
+  блокируется, если потрачено ≥ бюджета или потрачено + «в работе» × оценка + новые × оценка >
+  бюджета; массовая — целиком. Оценка — среднее по 20 прошлым запросам той же модели и
+  размера, иначе по ценам; нет цен для модели — отправка заблокирована.
+- `FAKE_GEMINI=1`: вход с пометкой, цена 0; промпт с `FAKE_REFUSE` — отказ `IMAGE_SAFETY`.
+- Настройки (`/settings`, `presets.py`): схемы pydantic `EditPrefs`, `UpscalePrefs`,
+  `GeminiPrefs`, `Price`; сохранённый словарь дополняется значениями по умолчанию (новые
+  ключи после обновления). Пресеты: один базовый + добавки (порядок `sort`, ↑/↓).
+- Ручная правка: файл (jpg/png/webp/tif/avif) → EXIF-поворот, RGB 8 бит, PNG — вариант
+  `manual` с `parent_id` выбранного, `REVIEW → REVIEW`. Любое следующее действие владельца
+  (доработка, Gemini, правка, «Принять») снимает отметку `attention` (`jobs.clear_attention`).
 
 ## Устройство
 
@@ -137,9 +167,11 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
 - `intake.py` — опрос `inbox/`; `imaging.py` — Pillow; `prep.py` — подготовка;
   `jobs.py` — задачи (стадии, неудача, отмена, повтор); `runs.py` — запуски и `claim`;
   `results.py` — входы, выходы, `complete`; `workflows.py` — реестр `workflows/registry.yaml`;
-  `final.py` — принятие и финал; `delivery.py` — отдача во «Готово».
+  `final.py` — принятие и финал; `delivery.py` — отдача во «Готово»; `gemini.py` — Gemini
+  (бюджет, отправка, воркер); `presets.py` — пресеты и пользовательские настройки.
 - `api/ui.py` (доска, карточка, подготовка, файлы), `api/pc.py` (панель «ПК», запуски),
-  `api/review.py` (проверка, доработка, «Принять»), `api/final.py` (финал),
+  `api/review.py` (проверка, доработка, Gemini, ручная правка, «Принять»), `api/final.py`
+  (финал), `api/settings_page.py` (настройки),
   `api/agent.py` (протокол агента). Просмотрщик — `templates/_viewer.html` + `static/review.js`
   на проверке и финале. Jinja2 + htmx +
   Alpine; JS-библиотеки лежат в `app/static/vendor/` (без CDN).

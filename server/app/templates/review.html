@@ -34,7 +34,7 @@
               title="{{ tooltips[v.id] }}" aria-pressed="{{ 'true' if selected and selected.id == v.id else 'false' }}">
         <img src="/files/{{ photo.id }}/variant/{{ v.id }}/thumb" alt="{{ v.label }}" loading="lazy">
         <span class="n">{{ numbers[v.id] }}</span>
-        <span class="badge src-{{ v.source }}">{{ source_labels[v.source] }}</span>
+        <span class="badge src-{{ v.source }}">{{ source_labels[v.source] }}{% if v.source == "gemini" and v.cost_usd is not none %} · {{ v.cost_usd | usd }}{% endif %}</span>
         <span class="lbl">{{ v.label }}{% if v.hidden %} · скрыт{% endif %}{% if v.id == accepted_id %} · принят{% endif %}</span>
       </button>
       {% endfor %}
@@ -54,6 +54,13 @@
       </form>
       {% endif %}
       <a class="btn" id="sel-download" href="#">Скачать PNG</a>
+      {% if can_refine %}
+      <form method="post" action="/review/{{ photo.id }}/manual" enctype="multipart/form-data">
+        <input type="hidden" name="variant_id" data-selected-variant>
+        <label class="btn file-btn" title="Файл из редактора станет новым вариантом от выбранного">Загрузить правку…
+          <input type="file" name="file" accept="{{ manual_accept }}" onchange="this.form.requestSubmit()"></label>
+      </form>
+      {% endif %}
       <form method="post" id="sel-visibility" action="#"><button id="sel-visibility-btn">Скрыть</button></form>
     </div>
 
@@ -82,6 +89,31 @@
       </label>
       <button class="primary">В очередь на ПК</button>
       <p class="hint">Фото уйдёт в очередь (раунд {{ photo.round + 1 }}), а агент возьмёт задачу после «Запустить».</p>
+    </form>
+
+    {% set blocked = gemini_block or budget_block %}
+    <form class="refine gemini-form" method="post" action="/review/{{ photo.id }}/gemini">
+      <h2>В Gemini</h2>
+      {% if blocked %}<p class="error">{{ blocked }}{% if budget_block %} <a href="/settings#gemini">Настройки</a>{% endif %}</p>{% endif %}
+      {% if addons %}
+      <div class="chips">
+        {% for a in addons %}
+        <label class="chip-check" title="{{ a.text }}"><input type="checkbox" name="addons" value="{{ a.id }}"> {{ a.name }}</label>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <textarea name="text" rows="3" maxlength="4000" placeholder="Что исправить (по-английски); пусто — базовый промпт"></textarea>
+      <fieldset class="src">
+        <legend>Источник</legend>
+        <label><input type="radio" name="source" value="variant" checked> вариант <span data-selected-label>—</span></label>
+        <label><input type="radio" name="source" value="prepared"> подготовленное фото</label>
+        <input type="hidden" name="variant_id" data-selected-variant>
+      </fieldset>
+      <label class="check"><input type="checkbox" name="reference" value="true" checked> приложить подготовленный скан как образец</label>
+      <button class="primary"{% if blocked %} disabled{% endif %}>Отправить в Gemini{% if budget.estimate %} · ≈{{ budget.estimate.usd | usd }}{% endif %}</button>
+      <p class="hint">{{ gemini.model }}, {{ gemini.image_size }}{% if budget.estimate %}; цена — {{ budget.estimate.basis }}{% endif %}.
+        За {{ budget.month }}: {{ budget.spent | usd }} из {{ budget.limit | usd }}{% if budget.inflight %}, в работе {{ budget.inflight }}{% endif %}.
+        Уходит сразу, без «Запустить»: ПК не нужен.</p>
     </form>
     {% endif %}
   </aside>
