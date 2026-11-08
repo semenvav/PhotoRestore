@@ -1,6 +1,7 @@
 import io
 import re
 import time
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -284,3 +285,46 @@ def test_background_loop_registers_file(tmp_path: Path) -> None:
                 break
             time.sleep(0.05)
         assert photo is not None and photo.status == Status.PREP
+
+
+def test_rejected_file_notice_goes_away(
+    client: TestClient,
+    intake: Intake,
+    inbox: Path,
+    settings: Settings,
+    factory: sessionmaker[Session],
+) -> None:
+    write(inbox / "Альбом" / "notes.txt", b"hello")
+    write(inbox / "scan.pdf", b"%PDF-1.4")
+    intake.poll(), intake.poll()
+    page = client.get("/").text
+    assert "Не приняты файлы" in page and "notes.txt" in page and "scan.pdf" in page
+
+    # файла больше нет в _unsupported (вернули во «Входящие», удалили) — строка пропала
+    (settings.unsupported_dir / "Альбом" / "notes.txt").unlink()
+    page = client.get("/").text
+    assert "notes.txt" not in page and "scan.pdf" in page
+
+    # «Скрыть» — до последнего показанного; меньший `upto` ничего не возвращает
+    match = re.search(r'name="upto" value="(\d+)"', page)
+    assert match is not None
+    r = client.post(
+        "/notices/dismiss",
+        data={"upto": match[1], "back": "/?album=x"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and r.headers["location"] == "/?album=x"
+    assert "Не приняты файлы" not in client.get("/").text
+    client.post("/notices/dismiss", data={"upto": "0"})
+    assert "Не приняты файлы" not in client.get("/").text
+
+    # новый не принятый файл снова виден; через неделю уведомление уходит само
+    write(inbox / "new.txt", b"x")
+    intake.poll(), intake.poll()
+    page = client.get("/").text
+    assert "new.txt" in page and "scan.pdf" not in page
+    with factory() as s:
+        for ev in s.scalars(select(Event).where(Event.kind == "unsupported")):
+            ev.ts -= timedelta(days=8)
+        s.commit()
+    assert "Не приняты файлы" not in client.get("/").text

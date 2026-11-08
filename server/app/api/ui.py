@@ -164,6 +164,38 @@ def board_ctx(session: Session, album: str | None, q: str | None) -> dict[str, A
     }
 
 
+NOTICE_DAYS = 7
+NOTICES_SHOWN = 10
+# настройка: ID последнего события «файл не принят», скрытого кнопкой «Скрыть»
+NOTICES_DISMISSED = "notices_dismissed"
+
+
+def dismissed_upto(session: Session) -> int:
+    value = presets.get_setting(session, NOTICES_DISMISSED)
+    return value if isinstance(value, int) else 0
+
+
+def rejected_files(session: Session, inbox: Path) -> list[Event]:
+    """Уведомления «файл не принят» на доске. Каждое видно неделю и только пока файл лежит
+    в `_unsupported`: его вернули во «Входящие», переложили или удалили — уведомление
+    пропадает. «Скрыть» убирает все показанные сразу."""
+    events = session.scalars(
+        select(Event)
+        .where(
+            Event.photo_id.is_(None),
+            Event.kind == "unsupported",
+            Event.id > dismissed_upto(session),
+            Event.ts > utcnow() - timedelta(days=NOTICE_DAYS),
+        )
+        .order_by(Event.id.desc())
+        .limit(NOTICES_SHOWN * 5)
+    ).all()
+    present = [
+        ev for ev in events if (inbox / str((ev.data or {}).get("moved_to") or "")).is_file()
+    ]
+    return present[:NOTICES_SHOWN]
+
+
 @router.get("/")
 def board(
     request: Request,
@@ -173,25 +205,27 @@ def board(
     msg: str | None = None,
 ) -> Response:
     albums = session.scalars(select(Photo.album).distinct().order_by(Photo.album)).all()
-    notices = session.scalars(
-        select(Event)
-        .where(
-            Event.photo_id.is_(None),
-            Event.kind == "unsupported",
-            Event.ts > utcnow() - timedelta(days=7),
-        )
-        .order_by(Event.id.desc())
-        .limit(10)
-    ).all()
+    settings: Settings = request.app.state.settings
     ctx = board_ctx(session, album, q) | {
         "hdr": header_ctx(request, session),
         "albums": albums,
-        "notices": notices,
+        "notices": rejected_files(session, settings.inbox_dir),
         "accept": ",".join(f".{ext}" for ext in sorted(ALLOWED_EXT)),
         "addons": presets.addons(session),
         "msg": msg,
     }
     return render(request, "board.html", ctx)
+
+
+@router.post("/notices/dismiss")
+def dismiss_notices(
+    session: SessionDep,
+    upto: Annotated[int, Form()],
+    back: Annotated[str, Form()] = "/",
+) -> Response:
+    # `upto` — последнее показанное: не принятый после загрузки страницы файл не скрывается
+    presets.set_setting(session, NOTICES_DISMISSED, max(dismissed_upto(session), upto))
+    return RedirectResponse(safe_back(back), status_code=303)
 
 
 @router.get("/partials/columns")

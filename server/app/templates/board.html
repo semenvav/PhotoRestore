@@ -94,11 +94,18 @@
 </form>
 
 {% if notices %}
-<div class="notice">
+<div class="notice rejected">
+  <form method="post" action="/notices/dismiss" class="notice-close">
+    <input type="hidden" name="upto" value="{{ notices | map(attribute='id') | max }}">
+    <input type="hidden" name="back" value="/?{{ qs }}">
+    <button class="link" title="Новые не принятые файлы снова появятся здесь">Скрыть</button>
+  </form>
   <b>Не приняты файлы из «Входящих»:</b>
   <ul>
     {% for ev in notices %}<li>{{ describe_event(ev) }} <span class="muted">· {{ ev.ts | localtime }}</span></li>{% endfor %}
   </ul>
+  <p class="muted">Строка пропадёт сама, когда файла не станет в <code>_unsupported</code>
+    (например, его вернули во «Входящие» или удалили), или через неделю.</p>
 </div>
 {% endif %}
 

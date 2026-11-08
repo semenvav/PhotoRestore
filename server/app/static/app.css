@@ -152,6 +152,8 @@ input[type="search"], input:not([type]), select {
   border: 1px solid var(--warn-line);
 }
 .notice ul { margin: 4px 0 0; padding-left: 20px; }
+.notice.rejected p { margin: 6px 0 0; font-size: 0.85rem; }
+.notice-close { float: right; margin: -4px -6px 0 8px; }
 .error {
   margin: 12px 0;
   padding: 8px 12px;
