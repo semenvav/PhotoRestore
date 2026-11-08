@@ -13,7 +13,8 @@ from PIL import Image
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import gemini, jobs, presets, runs
-from app.api import agent, final, pc, review, settings_page, ui
+from app.api import agent, family, final, pc, review, settings_page, ui
+from app.auth import RoleMiddleware, parse_hosts
 from app.config import Settings, get_settings
 from app.db import make_engine, make_session_factory, migrate, session_scope
 from app.intake import Intake
@@ -70,6 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     store = Store(settings.store_dir)
     intake = Intake(settings, factory, store)
     worker = gemini.GeminiWorker(factory, store, settings, gemini.make_backend(settings))
+    family_hosts = parse_hosts(settings.family_host)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -88,6 +90,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tasks.append(asyncio.create_task(worker.run()))
         if settings.agent_token is None:
             log.warning("AGENT_TOKEN не задан: API агента отвечает 503")
+        if not family_hosts:
+            log.warning("FAMILY_HOST не задан: отец не может принять или вернуть фото")
         if not worker.available:
             log.warning("GEMINI_API_KEY не задан: отправка в Gemini недоступна")
         elif worker.fake:
@@ -116,7 +120,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.registry = registry
     app.state.gemini = worker
     app.state.templates = make_templates(settings.display_tz, settings.app_version)
+    # роль по хосту: на FAMILY_HOST — только /family (ТЗ §5.6)
+    app.add_middleware(RoleMiddleware, family_hosts=family_hosts)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.include_router(family.router)
     # pc и review раньше ui: у ui есть общий POST /photo/{id}/{action}
     app.include_router(pc.router)
     app.include_router(review.router)

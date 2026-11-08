@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Готовые фотографии{% endblock %}</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/vendor/alpine.min.js" defer></script>
+</head>
+<body class="family">
+  {% if preview %}
+  <div class="family-preview">
+    Так этот экран видит отец. Принять или вернуть фото он может только со своего адреса{% if family_hosts %}: {{ family_hosts | join(", ") }}{% else %} — он не настроен (переменная <code>FAMILY_HOST</code>){% endif %}.
+    <a href="/">К доске</a>
+  </div>
+  {% endif %}
+  <header class="family-top">
+    <a class="family-brand" href="/family">Готовые фотографии</a>
+  </header>
+  {% if msg %}<div class="flash" role="status">{{ msg }}</div>{% endif %}
+  <main class="family-main">
+    {% block main %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

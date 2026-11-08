@@ -13,7 +13,7 @@
   </nav>
 </div>
 
-{% if photo.family_comment %}<div class="notice"><b>Комментарий отца:</b> {{ photo.family_comment }}</div>{% endif %}
+{% if returned %}<div class="notice family-comment"><b>Отец вернул{% if returned.data.variant %} {{ returned.data.variant }}{% endif %} {{ returned.ts | localtime }}:</b> {{ returned.data.comment }}</div>{% endif %}
 {% if photo.attention %}<div class="error">{{ photo.attention_reason }}</div>{% endif %}
 
 {% if not rounds %}

@@ -60,6 +60,19 @@ def neighbours(
     return (before[-1] if before else others[-1]), (after[0] if after else others[0])
 
 
+def family_return(session: Session, photo: Photo) -> Event | None:
+    """Последний возврат отцом, если после него отец ещё ничего не принимал."""
+    if not photo.family_comment:
+        return None
+    last = session.scalar(
+        select(Event)
+        .where(Event.photo_id == photo.id, Event.actor == Actor.FAMILY, Event.kind == "status")
+        .order_by(Event.id.desc())
+        .limit(1)
+    )
+    return last if last is not None and last.data.get("to") == Status.REVIEW else None
+
+
 def variant_tooltip(v: Variant) -> str:
     p = v.params or {}
     parts = [SOURCE_LABELS[v.source], f"раунд {v.round}", f"{v.width}×{v.height}"]
@@ -157,6 +170,7 @@ def review_page(
     ctx = {
         "hdr": header_ctx(request, session),
         "photo": photo,
+        "returned": family_return(session, photo),
         "rounds": rounds,
         "numbers": {x.id: i + 1 for i, x in enumerate(shown)},
         "selected": selected,

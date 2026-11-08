@@ -47,6 +47,9 @@
       {% if can_prep %}
       <a class="btn {{ '' if variants_count else 'primary' }}" href="/prep/{{ photo.id }}">{{ "Подготовить" if photo.status == "PREP" else "Переподготовить" }}</a>
       {% endif %}
+      {% if photo.status in ("DELIVERED", "ACCEPTED") and photo.final_variant_id %}
+      <a class="btn" href="/family/{{ photo.id }}" title="Как это фото видит отец">Экран отца</a>
+      {% endif %}
       {% if can_unhold %}
       <form method="post" action="/photo/{{ photo.id }}/unhold"><button>Вернуть в работу</button></form>
       {% endif %}

@@ -89,6 +89,15 @@ def describe_event(ev: Event) -> str:
                 text += f" · {d.get('variant', '')} → «Готово»/{d['delivered']}"
             if d.get("back"):
                 text += " · назад к вариантам"
+            if d.get("comment"):
+                text += f" · вернул {d['variant']}" if d.get("variant") else " · вернул"
+                text += f": «{d['comment']}»"
+            if d.get("delivered_removed"):
+                text += " · копия убрана из «Готово»"
+            if d.get("delivered_missing"):
+                text += " · в «Готово» файла уже не было"
+            if d.get("delivered_kept"):
+                text += f" · файл во «Готово» оставлен: {d.get('reason')}"
             if d.get("error"):
                 attempt = f" (попытка {d['attempt']})" if d.get("attempt") else ""
                 text += f" · ошибка{attempt}: {d['error']}"

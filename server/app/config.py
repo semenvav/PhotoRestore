@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     gemini_timeout_s: float = 300.0
     gemini_retry_base_s: float = 2.0  # паузы перед повторами 429/5xx: 2, 4, 8 с
 
+    # отец (ТЗ §5.6): запросы на этот хост (через запятую — несколько) видят только /family
+    family_host: str = ""
+
     @property
     def inbox_dir(self) -> Path:
         return self.data_dir / "inbox"

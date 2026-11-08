@@ -25,6 +25,7 @@
           <span class="name" title="{{ p.original_name }}">{{ p.original_name }}</span>
         </div>
         {% if p.attention %}<div class="reason">{{ p.attention_reason }}</div>{% endif %}
+        {% if p.family_comment and p.status not in ("DELIVERED", "ACCEPTED") %}<div class="returned" title="{{ p.family_comment }}">↩ Отец: {{ p.family_comment }}</div>{% endif %}
       </article>
       {% endfor %}
     </div>

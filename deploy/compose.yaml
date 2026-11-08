@@ -9,6 +9,8 @@
 #
 # Переменные для подстановки (можно положить в deploy/.env, он тоже в .gitignore):
 #   RESTORE_HOST        имя хоста, по которому Traefik отдаёт сервис (обязательно)
+#   FAMILY_HOST         второе имя того же сервиса — для отца: на нём виден только экран /family
+#                       (обязательно; запись во внутреннем DNS, как у RESTORE_HOST)
 #   RESTORE_IMAGE_TAG   какую сборку запускать: 0.1.2 (закрепить), latest (последняя из master),
 #                       <ветка>, sha-1a2b3c4; работающая сборка видна в шапке и в /healthz
 #   RESTORE_DATA        путь на хосте, куда смонтировано хранилище (inbox/, delivered/, store/)
@@ -32,6 +34,7 @@ services:
     environment:
       TZ: ${TZ:-Asia/Jerusalem}
       DISPLAY_TZ: ${TZ:-Asia/Jerusalem}
+      FAMILY_HOST: ${FAMILY_HOST:?задайте FAMILY_HOST в deploy/.env}
     volumes:
       - ${RESTORE_DATA:-/mnt/restore}:/data
       # SQLite — только на локальном томе: блокировки по NFS ненадёжны
@@ -48,6 +51,11 @@ services:
       traefik.http.routers.photo-restore.tls: "true"
       # traefik.http.routers.photo-restore.tls.certresolver: le
       traefik.http.routers.photo-restore.service: photo-restore
+      # экран отца — тот же сервис под другим именем; роль по имени определяет приложение
+      traefik.http.routers.photo-restore-family.rule: Host(`${FAMILY_HOST:?задайте FAMILY_HOST в deploy/.env}`)
+      traefik.http.routers.photo-restore-family.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.photo-restore-family.tls: "true"
+      traefik.http.routers.photo-restore-family.service: photo-restore
       # API агента — отдельный роутер; токен проверяет приложение
       traefik.http.routers.photo-restore-agent.rule: Host(`${RESTORE_HOST:?задайте RESTORE_HOST в deploy/.env}`) && PathPrefix(`/api/agent`)
       traefik.http.routers.photo-restore-agent.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}

@@ -1,0 +1,66 @@
+{% extends "family_base.html" %}
+{% block title %}{{ title }} · Готовые фотографии{% endblock %}
+{% block main %}
+<nav class="family-nav">
+  <a href="/family">← Все фотографии</a>
+  {% if next_id %}<a class="push" href="/family/{{ next_id }}">Следующее →</a>{% endif %}
+</nav>
+
+{# кнопки — над картинкой, чтобы их не приходилось искать прокруткой #}
+<div class="family-answer" x-data="{ back: {{ 'true' if request.query_params.get('return') else 'false' }} }">
+  <div class="family-head">
+    <div>
+      <h1>{{ title }}</h1>
+      <p class="family-sub">{% if photo.album %}{{ photo.album }} · {% endif %}{% if waiting %}готово {% else %}принято {% endif %}{{ photo.updated_at | localtime("%d.%m.%Y") }}</p>
+    </div>
+    {% if waiting %}
+    <div class="family-buttons" x-show="!back">
+      <form method="post" action="/family/{{ photo.id }}/accept">
+        <button class="big ok" {% if not can_answer %}disabled title="Отвечает отец"{% endif %}>Принять</button>
+      </form>
+      <button type="button" class="big" @click="back = true; $nextTick(() => $refs.comment.focus())"
+              {% if not can_answer %}disabled title="Отвечает отец"{% endif %}>Вернуть</button>
+    </div>
+    {% else %}
+    <p class="family-done">Вы приняли это фото. Оно лежит в папке «Готово».</p>
+    {% endif %}
+  </div>
+
+  {% if comment %}<div class="notice family-note">Вы просили: «{{ comment.rstrip('.') }}» — вот что получилось.</div>{% endif %}
+
+  {% if waiting %}
+  <form class="family-return" method="post" action="/family/{{ photo.id }}/return" x-show="back" x-cloak>
+    <label for="comment">Что нужно исправить?</label>
+    <textarea id="comment" name="comment" x-ref="comment" rows="3" maxlength="{{ max_comment }}" required
+              placeholder="Например: лицо слева получилось не похожим, верните морщины"></textarea>
+    <div class="family-buttons">
+      <button class="big" {% if not can_answer %}disabled{% endif %}>Отправить</button>
+      <button type="button" class="big link" @click="back = false">Отмена</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+
+<section class="viewer family-viewer">
+  <div class="viewer-bar">
+    <div class="seg family-seg">
+      <button type="button" data-split="1">Было</button>
+      <button type="button" data-split="0.5" aria-pressed="true">Сравнить</button>
+      <button type="button" data-split="0">Стало</button>
+    </div>
+    <span class="push"></span>
+    <button type="button" data-zoom="fit">Целиком</button>
+  </div>
+  <div id="compare" class="vstage compare">
+    <div class="layer" data-slot="right"><img alt=""></div>
+    <div class="layer over" data-slot="left"><img alt=""></div>
+    <div class="divider" title="Перетащите"><span class="grip"></span></div>
+    <span class="tag left" data-tag="left"></span>
+    <span class="tag right" data-tag="right"></span>
+  </div>
+  <p class="hint">Тяните белый кружок влево и вправо. Увеличить — колесо мыши, два пальца или двойной щелчок.
+    <a class="push" href="{{ download }}">Скачать фото</a></p>
+</section>
+<script type="application/json" id="review-config">{{ config | tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="/static/review.js"></script>{% endblock %}

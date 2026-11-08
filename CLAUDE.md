@@ -15,7 +15,8 @@ uv run pytest -q                          # тесты (сервер, прото
 uv run ruff format server agent tests && uv run ruff check server agent tests
 uv run mypy                               # типы (server/app, agent/restore_agent)
 # локальный сервер: скопируйте .env.example в .env (AGENT_TOKEN — для API агента;
-# GEMINI_API_KEY — платный Gemini, FAKE_GEMINI=1 — без него)
+# GEMINI_API_KEY — платный Gemini, FAKE_GEMINI=1 — без него; FAMILY_HOST=127.0.0.1 —
+# тогда http://127.0.0.1:8000 открывается как отец, http://localhost:8000 — как владелец)
 uv run uvicorn --factory app.main:create_app --reload --app-dir server
 # агент: config.toml по образцу agent/config.example.toml; FAKE_COMFY=1 — без GPU
 uv run python -m restore_agent --config agent/config.toml
@@ -36,7 +37,7 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
   ветки по умолчанию в серии получает номер `0.1`, следующие — `0.1.1`, `0.1.2`… Номер ставится
   git-тегом `v…` после публикации образа и передаётся в образ как `APP_VERSION`
   (виден в шапке и в `/healthz`).
-- **Начиная новый этап, первым делом поменять `VERSION`** (M5 → `0.5`).
+- **Начиная новый этап, первым делом поменять `VERSION`** (сейчас `0.5` — M5, последний этап ТЗ).
 - Версия агента — `agent/restore_agent/__init__.py`; сервер принимает агентов не старше
   `MIN_AGENT_VERSION` (`server/app/api/agent.py`), иначе `hello` → 426. Несовместимая правка
   протокола = поднять обе.
@@ -159,6 +160,22 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
 - Ручная правка: файл (jpg/png/webp/tif/avif) → EXIF-поворот, RGB 8 бит, PNG — вариант
   `manual` с `parent_id` выбранного, `REVIEW → REVIEW`. Любое следующее действие владельца
   (доработка, Gemini, правка, «Принять») снимает отметку `attention` (`jobs.clear_attention`).
+- Роли (`auth.py`): входа нет. Отец — любой запрос с `Host` из `FAMILY_HOST` (через запятую,
+  без порта и регистра; в compose — второй роутер Traefik на тот же сервис). Ему доступны
+  только `/family…`, `/static/`, `/healthz`: GET → 303 на `/family`, остальное → 403.
+  Остальные хосты — владелец; он видит `/family` как предпросмотр без кнопок. Без
+  `FAMILY_HOST` отвечать за отца некому (в логе предупреждение).
+- Экран отца (`family.py`, `api/family.py`): «Ждут ответа» (DELIVERED, по времени отдачи) и
+  «Принятые»; «было» — `prepared`, «стало» — `final_variant_id`; картинки только через
+  `/family/{id}/…` и только у этих двух статусов. Имя — исходное без расширения, `_` →
+  пробел; R-ID, варианты, цены не показываются. Просмотрщик — тот же `review.js` (только
+  «два рядом», кнопки «Было / Сравнить / Стало»).
+- «Вернуть» (комментарий обязателен, ≤ 2000 знаков) → REVIEW от отца (раунд + 1),
+  `family_comment`, `accepted_variant_id`/`final_variant_id`/`delivered_path` обнуляются.
+  Копия из «Готово» удаляется, только если её `Title` — наш ID (пересохранённый или чужой
+  файл остаётся); итог — в событии (`delivered_removed` / `_kept` + `reason` / `_missing`).
+  Метка «↩ Отец» на доске и плашка на проверке — пока фото не отдано снова (на проверке —
+  пока последний ответ отца — возврат); повторно отданное отец видит с «Вы просили: …».
 
 ## Устройство
 
@@ -168,10 +185,11 @@ DB_PATH=var/gen.db uv run alembic -c server/alembic.ini revision --autogenerate 
   `jobs.py` — задачи (стадии, неудача, отмена, повтор); `runs.py` — запуски и `claim`;
   `results.py` — входы, выходы, `complete`; `workflows.py` — реестр `workflows/registry.yaml`;
   `final.py` — принятие и финал; `delivery.py` — отдача во «Готово»; `gemini.py` — Gemini
-  (бюджет, отправка, воркер); `presets.py` — пресеты и пользовательские настройки.
+  (бюджет, отправка, воркер); `presets.py` — пресеты и пользовательские настройки;
+  `auth.py` — роль по хосту; `family.py` — приёмка отцом.
 - `api/ui.py` (доска, карточка, подготовка, файлы), `api/pc.py` (панель «ПК», запуски),
   `api/review.py` (проверка, доработка, Gemini, ручная правка, «Принять»), `api/final.py`
-  (финал), `api/settings_page.py` (настройки),
+  (финал), `api/settings_page.py` (настройки), `api/family.py` (экран отца),
   `api/agent.py` (протокол агента). Просмотрщик — `templates/_viewer.html` + `static/review.js`
   на проверке и финале. Jinja2 + htmx +
   Alpine; JS-библиотеки лежат в `app/static/vendor/` (без CDN).

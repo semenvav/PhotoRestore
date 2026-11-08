@@ -39,6 +39,7 @@ TOKEN = "z" * 43
 @pytest.fixture
 def settings(settings: Settings) -> Settings:
     settings.agent_token = SecretStr(TOKEN)
+    settings.family_host = "family.test"
     return settings
 
 
@@ -383,7 +384,7 @@ def test_full_pipeline_to_delivered(
     agent: tuple[Agent, FakeComfy],
 ) -> None:
     """ТЗ §10: файл во «Входящих» → подготовка → run → 3 варианта → принять → апскейл →
-    утвердить → файл во «Готово» под исходным именем с `_restored`."""
+    утвердить → файл во «Готово» под исходным именем с `_restored` → отец принимает."""
     ag, fake = agent
     pid = prepared_photo(client, intake, inbox, "Семья/Дедушка 1938.png", 3)
     client.post("/runs/start")
@@ -415,6 +416,9 @@ def test_full_pipeline_to_delivered(
     assert status(factory, pid) == Status.DELIVERED
     ag.step()
     assert fake.frees == 2  # после каждого запуска
+
+    client.post(f"/family/{pid}/accept", headers={"host": "family.test"})
+    assert status(factory, pid) == Status.ACCEPTED
 
 
 def test_ten_selected_photos_run_with_one_button(

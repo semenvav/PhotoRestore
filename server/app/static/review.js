@@ -1,6 +1,7 @@
 // Экраны проверки и финала: «два рядом» со слайдером и сетка 2×2. Зум и сдвиг общие для
 // всех панелей; при зуме выше превью подгружается полный файл. Конфиг — #review-config:
-// images, selected, left (что слева; по умолчанию prepared), prevUrl/nextUrl.
+// images, selected, left (что слева; по умолчанию prepared), right (что справа, пока ничего не
+// выбрано), prevUrl/nextUrl. Экран отца берёт отсюда только «два рядом» (без сетки и выбора).
 (() => {
   const cfg = JSON.parse(document.getElementById("review-config").textContent);
   const images = new Map(cfg.images.map((i) => [i.key, i]));
@@ -13,7 +14,7 @@
   const state = {
     mode: "compare",
     left: baseLeft,
-    right: cfg.selected || "prepared",
+    right: cfg.right || cfg.selected || "prepared",
     selected: cfg.selected,
     split: 0.5,
   };
@@ -78,7 +79,7 @@
   }
 
   function label(entry) {
-    return entry.key === "prepared" ? entry.label : `${entry.label} · ${entry.badge}`;
+    return entry.badge ? `${entry.label} · ${entry.badge}` : entry.label;
   }
 
   // --- зум и сдвиг ----------------------------------------------------------------------
@@ -101,7 +102,7 @@
     }
     const stage = stages()[0];
     const pct = Math.round(view.s * fit(reference(), stage) * 100);
-    zoomOut.textContent = view.s === 1 ? `вписано · ${pct}%` : `${pct}%`;
+    if (zoomOut) zoomOut.textContent = view.s === 1 ? `вписано · ${pct}%` : `${pct}%`;
   }
 
   // превью — 2048 px по длинной стороне; глубже — полный файл
@@ -213,7 +214,7 @@
   }
 
   bindStage(compare);
-  grid.querySelectorAll(".vstage").forEach(bindStage);
+  grid?.querySelectorAll(".vstage").forEach(bindStage);
   window.addEventListener("resize", () => {
     if (view.s > 1) clampPan();
     apply();
@@ -222,7 +223,7 @@
   // --- панель управления ----------------------------------------------------------------
   const pickLeft = document.getElementById("pick-left");
   const pickRight = document.getElementById("pick-right");
-  for (const select of [pickLeft, pickRight]) {
+  for (const select of [pickLeft, pickRight].filter(Boolean)) {
     for (const entry of cfg.images) {
       const opt = document.createElement("option");
       opt.value = entry.key;
@@ -230,11 +231,11 @@
       select.append(opt);
     }
   }
-  pickLeft.addEventListener("change", () => {
+  pickLeft?.addEventListener("change", () => {
     state.left = pickLeft.value;
     render();
   });
-  pickRight.addEventListener("change", () => {
+  pickRight?.addEventListener("change", () => {
     state.right = pickRight.value;
     render();
   });
@@ -251,8 +252,17 @@
       render();
     }));
 
-  document.querySelector('[data-zoom="fit"]').addEventListener("click", () => zoomAt(0, 0, 1));
-  document.querySelector('[data-zoom="100"]').addEventListener("click", () => oneToOne());
+  document.querySelector('[data-zoom="fit"]')?.addEventListener("click", () => zoomAt(0, 0, 1));
+  document.querySelector('[data-zoom="100"]')?.addEventListener("click", () => oneToOne());
+
+  // «Было» / «Сравнить» / «Стало»: разделитель целиком вправо, посередине или влево
+  const splits = document.querySelectorAll("[data-split]");
+  splits.forEach((btn) =>
+    btn.addEventListener("click", () => {
+      state.split = Number(btn.dataset.split);
+      splits.forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      render();
+    }));
 
   // --- выбор варианта ------------------------------------------------------------------
   const actions = document.getElementById("variant-actions");
@@ -290,8 +300,8 @@
   }
 
   function syncPickers() {
-    pickLeft.value = state.left;
-    pickRight.value = state.right;
+    if (pickLeft) pickLeft.value = state.left;
+    if (pickRight) pickRight.value = state.right;
   }
 
   document.querySelectorAll(".tile").forEach((tile) =>

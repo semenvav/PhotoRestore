@@ -1,0 +1,27 @@
+{% extends "family_base.html" %}
+{% macro photo_card(c) %}
+<a class="family-card" href="/family/{{ c.id }}">
+  <img src="{{ c.thumb }}" alt="{{ c.title }}" loading="lazy">
+  <span class="family-card-title">{{ c.title }}</span>
+  <span class="family-card-sub">{% if c.album %}{{ c.album }} · {% endif %}{{ c.when | localtime("%d.%m.%Y") }}</span>
+  {% if c.comment %}<span class="family-card-redo">Переделано по вашей просьбе</span>{% endif %}
+</a>
+{% endmacro %}
+{% block main %}
+<h1>Ждут вашего ответа{% if waiting %} <span class="count">{{ waiting | length }}</span>{% endif %}</h1>
+{% if waiting %}
+<p class="family-lead">Откройте фото, сравните «было» и «стало» и нажмите «Принять» или «Вернуть».</p>
+<div class="family-grid">
+  {% for c in waiting %}{{ photo_card(c) }}{% endfor %}
+</div>
+{% else %}
+<p class="family-lead">Новых фотографий пока нет. Когда что-то будет готово, оно появится здесь и в папке «Готово».</p>
+{% endif %}
+
+{% if accepted %}
+<h2>Принятые <span class="muted">{{ accepted | length }}</span></h2>
+<div class="family-grid small">
+  {% for c in accepted %}{{ photo_card(c) }}{% endfor %}
+</div>
+{% endif %}
+{% endblock %}
